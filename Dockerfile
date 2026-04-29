@@ -88,4 +88,4 @@ RUN npm install -g --no-audit --no-fund openclaw@latest 2>/dev/null || echo "ope
 RUN npm install -g --no-audit --no-fund droid 2>/dev/null || echo "droid installation skipped"
 
 # Create persistent home directory structure for CLI configs and cache
-RUN mkdir -p /root/.config /root/.cache /root/.local/share && chmod 700 /root/.ssh
+RUN mkdir -p /root/.config /root/.cache /root/.local/share /root/.ssh && chmod 700 /root/.ssh
