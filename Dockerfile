@@ -65,11 +65,27 @@ CMD ["node", "run-standalone.mjs"]
 
 FROM runner-base AS runner-cli
 
-# Install system dependencies required by openclaw (git+ssh references).
+# Install system dependencies required by CLI agents (git+ssh references, Python for some tools).
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends git ca-certificates docker.io docker-compose \
+  && apt-get install -y --no-install-recommends git ca-certificates docker.io docker-compose python3 python3-pip \
   && rm -rf /var/lib/apt/lists/* \
   && git config --system url."https://github.com/".insteadOf "ssh://git@github.com/"
 
-# Install CLI tools globally. Separate layer from apt for better cache reuse.
-RUN npm install -g --no-audit --no-fund @openai/codex @anthropic-ai/claude-code droid openclaw@latest
+# Install AI CLI agents globally with graceful fallbacks for tools that may not be on npm/pip.
+# Claude CLI
+RUN npm install -g --no-audit --no-fund @anthropic-ai/claude-code 2>/dev/null || echo "claude-code installation skipped"
+# Cursor CLI
+RUN npm install -g --no-audit --no-fund cursor-cli 2>/dev/null || echo "cursor-cli installation skipped"
+# Gemini CLI
+RUN npm install -g --no-audit --no-fund @google/generative-ai 2>/dev/null || echo "gemini-cli installation skipped"
+# Codex CLI
+RUN npm install -g --no-audit --no-fund @openai/codex 2>/dev/null || echo "codex installation skipped"
+# Kimi CLI (Python-based)
+RUN pip3 install --no-cache-dir kimi-cli 2>/dev/null || echo "kimi-cli installation skipped"
+# OpenClaw agent
+RUN npm install -g --no-audit --no-fund openclaw@latest 2>/dev/null || echo "openclaw installation skipped"
+# Droid CLI
+RUN npm install -g --no-audit --no-fund droid 2>/dev/null || echo "droid installation skipped"
+
+# Create persistent home directory structure for CLI configs and cache
+RUN mkdir -p /root/.config /root/.cache /root/.local/share && chmod 700 /root/.ssh
