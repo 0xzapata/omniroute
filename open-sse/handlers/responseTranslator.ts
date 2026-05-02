@@ -123,10 +123,17 @@ export function translateNonStreamingResponse(
           toString(itemObj.call_id) ||
           toString(itemObj.id) ||
           `call_${Date.now()}_${toolCalls.length}`;
+        let argsToEmit = itemObj.arguments;
+        if (argsToEmit != null && typeof argsToEmit === "object" && !Array.isArray(argsToEmit)) {
+          const cleaned: JsonRecord = { ...(argsToEmit as JsonRecord) };
+          for (const [k, v] of Object.entries(cleaned)) {
+            if (v === "" || (Array.isArray(v) && v.length === 0)) delete cleaned[k];
+          }
+          argsToEmit = cleaned;
+        }
+
         const fnArgs =
-          typeof itemObj.arguments === "string"
-            ? itemObj.arguments
-            : JSON.stringify(itemObj.arguments || {});
+          typeof argsToEmit === "string" ? argsToEmit : JSON.stringify(argsToEmit || {});
         const rawName = toString(itemObj.name);
         // Strip Claude OAuth proxy_ prefix using toolNameMap
         const resolvedName = toolNameMap?.get(rawName) ?? rawName;
@@ -274,8 +281,12 @@ export function translateNonStreamingResponse(
                     const fn = toRecord(partObj.functionCall);
                     const rawName = toString(fn.name);
                     const restoredName = toolNameMap?.get(rawName) ?? rawName;
+                    const nativeId = toString(fn.id);
                     toolCalls.push({
-                      id: `call_${toString(restoredName, "unknown")}_${Date.now()}_${toolCalls.length}`,
+                      id:
+                        nativeId.length > 0
+                          ? nativeId
+                          : `call_${toString(restoredName, "unknown")}_${Date.now()}_${toolCalls.length}`,
                       type: "function",
                       function: {
                         name: restoredName,

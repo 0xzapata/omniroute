@@ -5,6 +5,51 @@ import { fileURLToPath } from "node:url";
 const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 const distDir = process.env.NEXT_DIST_DIR || ".next";
 const projectRoot = dirname(fileURLToPath(import.meta.url));
+const scriptSrc =
+  process.env.NODE_ENV === "development"
+    ? "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:"
+    : "script-src 'self' 'unsafe-inline' blob:";
+const contentSecurityPolicy = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "form-action 'self'",
+  scriptSrc,
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' https://fonts.gstatic.com data:",
+  "img-src 'self' data: blob: https:",
+  "media-src 'self' data: blob:",
+  "connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:* https: wss:",
+  "worker-src 'self' blob:",
+  "manifest-src 'self'",
+].join("; ");
+const securityHeaders = [
+  {
+    key: "Content-Security-Policy",
+    value: contentSecurityPolicy,
+  },
+  {
+    key: "X-Frame-Options",
+    value: "DENY",
+  },
+  {
+    key: "X-Content-Type-Options",
+    value: "nosniff",
+  },
+  {
+    key: "Referrer-Policy",
+    value: "strict-origin-when-cross-origin",
+  },
+  {
+    key: "Permissions-Policy",
+    value: "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=()",
+  },
+  {
+    key: "Strict-Transport-Security",
+    value: "max-age=63072000; includeSubDomains; preload",
+  },
+];
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -67,6 +112,7 @@ const nextConfig = {
     "tls-client-node",
     "koffi",
     "tough-cookie",
+    "@ngrok/ngrok",
     "child_process",
     "fs",
     "path",
@@ -100,6 +146,7 @@ const nextConfig = {
           contextRegExp: /thread-stream/,
         })
       );
+
       // ── Turbopack / Next.js 16 module-hash patch (#394, #396, #398) ────────
       //
       // Next.js 16 (with or without Turbopack) compiles the instrumentation hook
@@ -121,6 +168,7 @@ const nextConfig = {
       const KNOWN_EXTERNALS = new Set([
         "better-sqlite3",
         "keytar",
+        "@ngrok/ngrok",
         "wreq-js",
         "zod",
         "pino",
@@ -174,9 +222,19 @@ const nextConfig = {
         tls: false,
         crypto: false,
         process: false,
+        os: false,
       };
     }
     return config;
+  },
+
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: securityHeaders,
+      },
+    ];
   },
 
   async rewrites() {

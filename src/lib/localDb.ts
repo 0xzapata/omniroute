@@ -79,6 +79,8 @@ export {
   deleteCombo,
 } from "./db/combos";
 
+export * from "./db/compressionCacheStats";
+
 export {
   // API Keys
   getApiKeys,
@@ -324,6 +326,16 @@ export {
 } from "./db/creditBalance";
 
 export {
+  insertCompressionAnalyticsRow,
+  getCompressionAnalyticsSummary,
+} from "./db/compressionAnalytics";
+
+export type {
+  CompressionAnalyticsRow,
+  CompressionAnalyticsSummary,
+} from "./db/compressionAnalytics";
+
+export {
   // Reasoning Replay Cache (#1628)
   setReasoningCache,
   getReasoningCache,
@@ -335,3 +347,17 @@ export {
 } from "./db/reasoningCache";
 
 export type { ReasoningCacheEntry, ReasoningCacheStats } from "./db/reasoningCache";
+
+export {
+  // 1proxy Integration (#1788)
+  listOneproxyProxies,
+  getOneproxyStats,
+  upsertOneproxyProxy,
+  getOneproxyProxyById,
+  deleteOneproxyProxy,
+  clearAllOneproxyProxies,
+  getOneproxyProxyForRotation,
+  markOneproxyProxyFailed,
+} from "./db/oneproxy";
+
+export type { OneproxyProxyRecord, OneproxyStats } from "./db/oneproxy";

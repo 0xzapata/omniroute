@@ -42,6 +42,9 @@ import {
   syncPricingInput,
   cacheStatsInput,
   cacheFlushInput,
+  oneproxyFetchInput,
+  oneproxyRotateInput,
+  oneproxyStatsInput,
 } from "./schemas/tools.ts";
 import { startMcpHeartbeat } from "./runtimeHeartbeat.ts";
 
@@ -66,9 +69,13 @@ import {
   handleSyncPricing,
   handleCacheStats,
   handleCacheFlush,
+  handleOneproxyFetch,
+  handleOneproxyRotate,
+  handleOneproxyStats,
 } from "./tools/advancedTools.ts";
 import { memoryTools } from "./tools/memoryTools.ts";
 import { skillTools } from "./tools/skillTools.ts";
+import { compressionTools } from "./tools/compressionTools.ts";
 import { normalizeQuotaResponse } from "../../src/shared/contracts/quota.ts";
 import { resolveOmniRouteBaseUrl } from "../../src/shared/utils/resolveOmniRouteBaseUrl.ts";
 
@@ -831,6 +838,44 @@ export function createMcpServer(): McpServer {
     )
   );
 
+  // ── 1proxy Tools ──────────────────────────────
+
+  server.registerTool(
+    "omniroute_oneproxy_fetch",
+    {
+      description:
+        "Fetch free proxies from the 1proxy marketplace with optional filters for protocol, country, and quality. Returns validated proxies with quality scores.",
+      inputSchema: oneproxyFetchInput,
+    },
+    withScopeEnforcement("omniroute_oneproxy_fetch", (args) =>
+      handleOneproxyFetch(oneproxyFetchInput.parse(args))
+    )
+  );
+
+  server.registerTool(
+    "omniroute_oneproxy_rotate",
+    {
+      description:
+        "Get the next available free proxy from the 1proxy pool using the specified rotation strategy.",
+      inputSchema: oneproxyRotateInput,
+    },
+    withScopeEnforcement("omniroute_oneproxy_rotate", (args) =>
+      handleOneproxyRotate(oneproxyRotateInput.parse(args))
+    )
+  );
+
+  server.registerTool(
+    "omniroute_oneproxy_stats",
+    {
+      description:
+        "Returns 1proxy sync status and statistics: total proxies, average quality, sync history, and distribution by protocol and country.",
+      inputSchema: oneproxyStatsInput,
+    },
+    withScopeEnforcement("omniroute_oneproxy_stats", (args) =>
+      handleOneproxyStats(oneproxyStatsInput.parse(args))
+    )
+  );
+
   // ── Memory Tools ──────────────────────────────
   Object.values(memoryTools).forEach((toolDef) => {
     server.registerTool(
@@ -856,6 +901,29 @@ export function createMcpServer(): McpServer {
 
   // ── Skill Tools ──────────────────────────────
   Object.values(skillTools).forEach((toolDef) => {
+    server.registerTool(
+      toolDef.name,
+      {
+        description: toolDef.description,
+        // @ts-ignore: dynamic zod access
+        inputSchema: toolDef.inputSchema,
+      },
+      withScopeEnforcement(toolDef.name, async (args) => {
+        try {
+          const parsedArgs = toolDef.inputSchema.parse(args ?? {});
+          // @ts-ignore: handler expected specific object
+          const result = await toolDef.handler(parsedArgs);
+          return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          return { content: [{ type: "text" as const, text: `Error: ${msg}` }], isError: true };
+        }
+      })
+    );
+  });
+
+  // ── Compression Tools ─────────────────────────
+  Object.values(compressionTools).forEach((toolDef) => {
     server.registerTool(
       toolDef.name,
       {
