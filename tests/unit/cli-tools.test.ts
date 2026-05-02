@@ -8,12 +8,10 @@ const {
   CLI_COMPAT_TOGGLE_IDS,
   IMPLEMENTED_CLI_FINGERPRINT_PROVIDER_IDS,
   normalizeCliCompatProviderId,
-} =
-  await import("../../src/shared/constants/cliCompatProviders.ts");
+} = await import("../../src/shared/constants/cliCompatProviders.ts");
 const { CLI_TOOL_IDS } = await import("../../src/shared/services/cliRuntime.ts");
-const { applyFingerprint, isCliCompatEnabled, setCliCompatProviders } = await import(
-  "../../open-sse/config/cliFingerprints.ts"
-);
+const { applyFingerprint, isCliCompatEnabled, setCliCompatProviders } =
+  await import("../../open-sse/config/cliFingerprints.ts");
 
 test("Amp CLI is registered as a guide-based CLI tool with shorthand mapping guidance", () => {
   const amp = CLI_TOOLS.amp;
@@ -77,6 +75,7 @@ test("CLI fingerprint toggles only expose implemented fingerprints and functiona
   }
 
   assert.equal(CLI_COMPAT_TOGGLE_IDS.includes("copilot"), true);
+  assert.equal(CLI_COMPAT_TOGGLE_IDS.includes("gemini-cli"), true);
   assert.equal((CLI_COMPAT_TOGGLE_IDS as readonly string[]).includes("github"), false);
 });
 
@@ -91,7 +90,7 @@ test("CLI fingerprint preserves Codex executor User-Agent and maps legacy Copilo
   );
 
   assert.equal(codex.headers["User-Agent"], "codex-cli/0.125.0 (Windows 10.0.26100; x64)");
-  assert.deepEqual(Object.keys(JSON.parse(codex.bodyString)), ["model", "messages", "stream"]);
+  assert.deepEqual(Object.keys(JSON.parse(codex.bodyString)), ["model", "stream", "messages"]);
 
   const copilot = applyFingerprint(
     "copilot",
@@ -100,6 +99,38 @@ test("CLI fingerprint preserves Codex executor User-Agent and maps legacy Copilo
   );
 
   assert.equal(copilot.headers["User-Agent"], "GitHubCopilotChat/0.45.1");
+
+  const geminiCli = applyFingerprint(
+    "gemini-cli",
+    {
+      Authorization: "Bearer token",
+      "Content-Type": "application/json",
+      "User-Agent":
+        "GeminiCLI/0.40.1/gemini-2.5-flash (linux; arm64; terminal) google-api-nodejs-client/9.15.1",
+      "X-Goog-Api-Client": "gl-node/22.22.2",
+      Accept: "*/*",
+    },
+    {
+      request: {},
+      user_prompt_id: "prompt-id",
+      project: "project-id",
+      model: "gemini-2.5-flash",
+    }
+  );
+
+  assert.deepEqual(Object.keys(JSON.parse(geminiCli.bodyString)), [
+    "model",
+    "project",
+    "user_prompt_id",
+    "request",
+  ]);
+  assert.deepEqual(Object.keys(geminiCli.headers), [
+    "Content-Type",
+    "User-Agent",
+    "X-Goog-Api-Client",
+    "Accept",
+    "Authorization",
+  ]);
 });
 
 test("CLI fingerprint keeps legacy Copilot settings functional without exposing duplicate UI toggles", () => {
@@ -110,6 +141,9 @@ test("CLI fingerprint keeps legacy Copilot settings functional without exposing 
     setCliCompatProviders(["copilot"]);
     assert.equal(isCliCompatEnabled("github"), true);
     assert.equal(isCliCompatEnabled("copilot"), true);
+    setCliCompatProviders(["gemini-cli"]);
+    assert.equal(isCliCompatEnabled("gemini-cli"), true);
+    assert.equal(isCliCompatEnabled("gemini"), false);
   } finally {
     setCliCompatProviders([]);
   }

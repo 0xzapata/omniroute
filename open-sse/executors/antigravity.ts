@@ -28,15 +28,29 @@ const CREDITS_EXHAUSTED_TTL_MS = 5 * 60 * 60 * 1000; // 5 hours
 
 const BARE_PRO_IDS = new Set(["gemini-3.1-pro"]);
 
+function cloneAntigravityRequestBody(body: unknown): unknown {
+  if (!body || typeof body !== "object") {
+    return body;
+  }
+
+  try {
+    return structuredClone(body);
+  } catch {
+    return JSON.parse(JSON.stringify(body));
+  }
+}
+
 function serializeAntigravityRequest(
   provider: string,
   headers: Record<string, string>,
   body: unknown
 ): { headers: Record<string, string>; bodyString: string } {
+  const serializedBody = cloneAntigravityRequestBody(body);
+
   if (!isCliCompatEnabled(provider)) {
-    return { headers, bodyString: JSON.stringify(body) };
+    return { headers, bodyString: JSON.stringify(serializedBody) };
   }
-  return applyFingerprint(provider, { ...headers }, body);
+  return applyFingerprint(provider, { ...headers }, serializedBody);
 }
 
 type AntigravityCollectedStream = {
@@ -44,6 +58,15 @@ type AntigravityCollectedStream = {
   finishReason: string;
   usage: Record<string, unknown> | null;
   remainingCredits: Array<{ creditType: string; creditAmount: string }> | null;
+};
+
+type AntigravityRequestEnvelope = Record<string, unknown> & {
+  project: string;
+  model: string;
+  userAgent: "antigravity";
+  requestType: "agent";
+  requestId: string;
+  request: Record<string, unknown>;
 };
 
 /**
@@ -235,7 +258,7 @@ export class AntigravityExecutor extends BaseExecutor {
     return scrubProxyAndFingerprintHeaders(raw);
   }
 
-  transformRequest(model, body, stream, credentials) {
+  transformRequest(model, body, stream, credentials): AntigravityRequestEnvelope | Response {
     // TODO: Consider removing project override like gemini-cli.ts — stored projectId
     // can become stale for Cloud Code accounts, causing 403 "has not been used in project X".
     // Antigravity accounts may have more stable project IDs, but the risk exists.
@@ -338,14 +361,24 @@ export class AntigravityExecutor extends BaseExecutor {
       }
     }
 
+    const {
+      project: _project,
+      model: _model,
+      userAgent: _userAgent,
+      requestType: _requestType,
+      requestId: _requestId,
+      request: _request,
+      ...passthroughFields
+    } = normalizedBody;
+
     return {
-      ...normalizedBody,
       project: projectId,
       model: upstreamModel,
       userAgent: "antigravity",
       requestType: "agent",
       requestId: `agent-${crypto.randomUUID()}`,
       request: transformedRequest,
+      ...passthroughFields,
     };
   }
 
@@ -558,15 +591,17 @@ export class AntigravityExecutor extends BaseExecutor {
       const url = this.buildUrl(model, upstreamStream, urlIndex);
       const headers = this.buildHeaders(credentials, upstreamStream);
       mergeUpstreamExtraHeaders(headers, upstreamExtraHeaders);
-      let transformedBody = await this.transformRequest(model, body, upstreamStream, credentials);
+      const transformed = await this.transformRequest(model, body, upstreamStream, credentials);
       let requestToolNameMap: Map<string, string> | null = null;
 
-      if (transformedBody instanceof Response) {
-        return { response: transformedBody, url, headers, transformedBody: body };
+      if (transformed instanceof Response) {
+        return { response: transformed, url, headers, transformedBody: body };
       }
 
+      let transformedBody: Record<string, unknown> = transformed;
+
       if (transformedBody && typeof transformedBody === "object") {
-        const cloaked = cloakAntigravityToolPayload(transformedBody as Record<string, unknown>);
+        const cloaked = cloakAntigravityToolPayload(transformedBody);
         transformedBody = cloaked.body;
         requestToolNameMap = cloaked.toolNameMap;
       }
@@ -585,7 +620,11 @@ export class AntigravityExecutor extends BaseExecutor {
       }
 
       try {
-        const serializedRequest = serializeAntigravityRequest(this.provider, headers, transformedBody);
+        const serializedRequest = serializeAntigravityRequest(
+          this.provider,
+          headers,
+          transformedBody
+        );
         const finalHeaders = serializedRequest.headers;
 
         const response = await fetch(url, {

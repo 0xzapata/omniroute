@@ -8,6 +8,8 @@ import {
   checkFallbackError,
   formatRetryAfter,
   getRuntimeProviderProfile,
+  recordProviderFailure,
+  isProviderFailureCode,
 } from "./accountFallback.ts";
 import { errorResponse, unavailableResponse } from "../utils/error.ts";
 import { recordComboIntent, recordComboRequest, getComboMetrics } from "./comboMetrics.ts";
@@ -127,7 +129,7 @@ function toTrimmedString(value): string | null {
  * 1. Body is valid JSON
  * 2. Has at least one choice with non-empty content or tool_calls
  */
-async function validateResponseQuality(
+export async function validateResponseQuality(
   response: Response,
   isStreaming: boolean,
   log: { warn?: (...args: unknown[]) => void }
@@ -161,7 +163,7 @@ async function validateResponseQuality(
   try {
     json = JSON.parse(text);
   } catch {
-    if (text.startsWith("data:")) return { valid: true };
+    if (text.startsWith("data:") || text.startsWith("event:")) return { valid: true };
     return { valid: false, reason: "response is not valid JSON" };
   }
 
@@ -1674,6 +1676,11 @@ export async function handleComboChat({
         profile
       );
 
+      // Trigger shared provider circuit breaker for 5xx errors and connection failures
+      if (isProviderFailureCode(result.status)) {
+        recordProviderFailure(provider, log, target.connectionId);
+      }
+
       // Check if this is a transient error worth retrying on same model
       const isTransient =
         !isStreamReadinessTimeout && [408, 429, 500, 502, 503, 504].includes(result.status);
@@ -1834,8 +1841,11 @@ async function handleRoundRobinCombo({
         timeoutMs: queueTimeout,
       });
     } catch (err) {
-      if (err.code === "SEMAPHORE_TIMEOUT") {
-        log.warn("COMBO-RR", `Semaphore timeout for ${modelStr}, trying next model`);
+      if (err.code === "SEMAPHORE_TIMEOUT" || err.code === "SEMAPHORE_QUEUE_FULL") {
+        log.warn(
+          "COMBO-RR",
+          `Semaphore ${err.code === "SEMAPHORE_QUEUE_FULL" ? "queue full" : "timeout"} for ${modelStr}, trying next model`
+        );
         if (offset > 0) fallbackCount++;
         continue;
       }

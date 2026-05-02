@@ -30,8 +30,25 @@ function resolveMigrationsDir(): string {
     return path.resolve(configuredDir);
   }
 
+  const checkLocations = (basePath: string) => {
+    const locations = [
+      path.join(basePath, "migrations"),
+      path.join(basePath, "src", "lib", "db", "migrations"),
+      path.join(basePath, "app", "src", "lib", "db", "migrations"),
+    ];
+    for (const loc of locations) {
+      if (fs.existsSync(loc)) return loc;
+    }
+    return null;
+  };
+
   try {
-    return path.join(path.dirname(fileURLToPath(import.meta.url)), "migrations");
+    let currentDir = path.dirname(fileURLToPath(import.meta.url));
+    while (currentDir !== path.dirname(currentDir)) {
+      const found = checkLocations(currentDir);
+      if (found) return found;
+      currentDir = path.dirname(currentDir);
+    }
   } catch {
     // Fall through to more defensive URL parsing below.
   }
@@ -46,21 +63,20 @@ function resolveMigrationsDir(): string {
       const rawPath = decodeURIComponent(
         metaUrl.replace(/^file:\/\/\//, "/").replace(/^file:\/\//, "")
       );
-      return path.join(path.dirname(path.resolve(rawPath)), "migrations");
+      let currentDir = path.dirname(path.resolve(rawPath));
+      while (currentDir !== path.dirname(currentDir)) {
+        const found = checkLocations(currentDir);
+        if (found) return found;
+        currentDir = path.dirname(currentDir);
+      }
     } catch {
       // Fall through to process.cwd fallback
     }
   }
 
   // Last resort: use process.cwd to find migrations relative to the app root
-  const cwdFallback = path.join(process.cwd(), "src", "lib", "db", "migrations");
-  if (fs.existsSync(cwdFallback)) {
-    return cwdFallback;
-  }
-  const appFallback = path.join(process.cwd(), "app", "src", "lib", "db", "migrations");
-  if (fs.existsSync(appFallback)) {
-    return appFallback;
-  }
+  const fromCwd = checkLocations(process.cwd());
+  if (fromCwd) return fromCwd;
 
   throw new Error(
     "[Migration] Could not resolve migrations directory. Set OMNIROUTE_MIGRATIONS_DIR."
@@ -98,6 +114,15 @@ const RENAMED_MIGRATION_COMPATIBILITY = [
     toVersion: "033",
     toName: "create_reasoning_cache",
   },
+] as const;
+
+const LEGACY_VERSION_SLOT_MIGRATIONS = [
+  { version: "028", name: "evals_tables" },
+  { version: "029", name: "webhooks_templates" },
+  { version: "030", name: "mcp_scopes_api_keys" },
+  { version: "031", name: "api_keys_expires" },
+  { version: "032", name: "detailed_logs_warnings" },
+  { version: "033", name: "provider_connections_block_extra_usage" },
 ] as const;
 
 const PHYSICAL_SCHEMA_SENTINELS = [
@@ -199,8 +224,51 @@ function ensureColumn(
   }
 }
 
-function isApiKeyLifecycleMigration(migration: { version: string; name: string }): boolean {
-  return migration.version === "032";
+function isSchemaAlreadyApplied(
+  db: Database.Database,
+  migration: { version: string; name: string }
+): boolean {
+  switch (migration.version) {
+    case "003":
+      return hasColumn(db, "provider_nodes", "chat_path");
+    case "005":
+      return hasColumn(db, "combos", "system_message");
+    case "007":
+      return hasColumn(db, "call_logs", "request_type");
+    case "009":
+      return hasColumn(db, "call_logs", "requested_model");
+    case "018":
+      return (
+        hasColumn(db, "call_logs", "tokens_cache_read") &&
+        hasColumn(db, "call_logs", "tokens_cache_creation") &&
+        hasColumn(db, "call_logs", "tokens_reasoning")
+      );
+    case "020":
+      return hasColumn(db, "combos", "sort_order");
+    case "021":
+      return (
+        hasColumn(db, "call_logs", "combo_step_id") &&
+        hasColumn(db, "call_logs", "combo_execution_key")
+      );
+    case "023":
+      return hasColumn(db, "memories", "memory_id");
+    case "025":
+      return (
+        hasColumn(db, "call_logs", "detail_state") && hasColumn(db, "call_logs", "request_summary")
+      );
+    case "026":
+      return hasColumn(db, "call_logs", "cache_source");
+    case "027":
+      return hasColumn(db, "skills", "mode");
+    case "028":
+      return hasTable(db, "batches") && hasTable(db, "files");
+    case "029":
+      return hasColumn(db, "provider_connections", "max_concurrent");
+    case "040":
+      return hasColumn(db, "proxy_registry", "source");
+    default:
+      return false;
+  }
 }
 
 function applyApiKeyLifecycleMigration(db: Database.Database): void {
@@ -368,6 +436,58 @@ function reconcileRenumberedMigrations(
   return repaired;
 }
 
+function rehomeLegacyVersionSlotMigrations(
+  db: Database.Database,
+  files: Array<{ version: string; name: string; path: string }>
+): boolean {
+  let repaired = false;
+  const diskNamesByVersion = new Map(files.map((file) => [file.version, file.name]));
+
+  for (const legacy of LEGACY_VERSION_SLOT_MIGRATIONS) {
+    const diskName = diskNamesByVersion.get(legacy.version);
+    if (!diskName || diskName === legacy.name) {
+      continue;
+    }
+
+    const legacyRow = db
+      .prepare("SELECT version, name FROM _omniroute_migrations WHERE version = ? AND name = ?")
+      .get(legacy.version, legacy.name) as { version: string; name: string } | undefined;
+    if (!legacyRow) {
+      continue;
+    }
+
+    const legacyVersion = `legacy-${legacy.version}-${legacy.name}`;
+    const applyRepair = db.transaction(() => {
+      const existingLegacyRow = db
+        .prepare("SELECT version FROM _omniroute_migrations WHERE version = ?")
+        .get(legacyVersion) as { version: string } | undefined;
+
+      if (existingLegacyRow) {
+        db.prepare("DELETE FROM _omniroute_migrations WHERE version = ? AND name = ?").run(
+          legacy.version,
+          legacy.name
+        );
+        return;
+      }
+
+      db.prepare("UPDATE _omniroute_migrations SET version = ? WHERE version = ? AND name = ?").run(
+        legacyVersion,
+        legacy.version,
+        legacy.name
+      );
+    });
+
+    applyRepair();
+    repaired = true;
+    console.warn(
+      `[Migration] Rehomed legacy migration ${legacy.version}_${legacy.name} ` +
+        `to ${legacyVersion} so current ${legacy.version}_${diskName} can apply.`
+    );
+  }
+
+  return repaired;
+}
+
 /**
  * Create a pre-migration backup of the SQLite database using VACUUM INTO.
  * Returns the backup path on success, null on failure.
@@ -410,6 +530,7 @@ export function runMigrations(db: Database.Database, options?: { isNewDb?: boole
   ensureMigrationsTable(db);
 
   const files = getMigrationFiles();
+  rehomeLegacyVersionSlotMigrations(db, files);
   reconcileRenumberedMigrations(db, files);
   const applied = getAppliedVersions(db);
   const appliedRecords = getAppliedRecords(db);
@@ -435,7 +556,26 @@ export function runMigrations(db: Database.Database, options?: { isNewDb?: boole
     );
   }
 
-  const pending = files.filter((f) => !applied.has(f.version));
+  // ── Gap Reconciliation: Identify non-contiguous missing migrations ──
+  // Do not rely on any highest-version-applied heuristic. We must explicitly
+  // iterate through all missing files on disk and apply them if they are missing
+  // from the _omniroute_migrations table.
+  const numericApplied = Array.from(applied)
+    .map((v) => Number.parseInt(v, 10))
+    .filter((n) => !Number.isNaN(n));
+  const highestApplied = numericApplied.length > 0 ? Math.max(...numericApplied) : 0;
+  const pending = files.filter((f) => {
+    const isMissing = !applied.has(f.version);
+    if (isMissing && Number(f.version) < highestApplied) {
+      console.warn(
+        `[Migration] 🔄 RECONCILIATION: Found missing intermediate migration ` +
+          `${f.version}_${f.name} (highest applied is ${highestApplied}). ` +
+          `This gap will be back-filled to ensure schema integrity.`
+      );
+    }
+    return isMissing;
+  });
+
   if (pending.length === 0) {
     return 0; // Nothing to do
   }
@@ -495,10 +635,12 @@ export function runMigrations(db: Database.Database, options?: { isNewDb?: boole
 
   for (const migration of pending) {
     const applyMigration = db.transaction(() => {
-      if (isApiKeyLifecycleMigration(migration)) {
+      if (isSchemaAlreadyApplied(db, migration)) {
+        console.warn(
+          `[Migration] Skipped executing ${migration.version}_${migration.name} as schema changes are already present (Idempotency check).`
+        );
+      } else if (migration.version === "032") {
         applyApiKeyLifecycleMigration(db);
-      } else if (isSearchRequestTypeMigration(migration)) {
-        applySearchRequestTypeMigration(db);
       } else {
         const sql = fs.readFileSync(migration.path, "utf-8");
         db.exec(sql);

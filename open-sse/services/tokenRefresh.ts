@@ -513,11 +513,7 @@ export async function refreshKiroToken(
     // AWS SSO OIDC (Builder ID or IDC)
     // If clientId and clientSecret exist, assume AWS SSO OIDC (default to builder-id if authMethod not specified)
     if (clientId && clientSecret) {
-      const isIDC = authMethod === "idc";
-      const endpoint =
-        isIDC && region
-          ? `https://oidc.${region}.amazonaws.com/token`
-          : "https://oidc.us-east-1.amazonaws.com/token";
+      const endpoint = `https://oidc.${region || "us-east-1"}.amazonaws.com/token`;
 
       const response = await runWithProxyContext(proxyConfig, () =>
         fetch(endpoint, {
@@ -843,6 +839,51 @@ export async function getAccessToken(provider, credentials, log, proxyConfig: un
   if (!credentials || !credentials.refreshToken || typeof credentials.refreshToken !== "string") {
     log?.warn?.("TOKEN_REFRESH", `No valid refresh token available for provider: ${provider}`);
     return null;
+  }
+
+  // RACE CONDITION PREVENTION:
+  // If the credentials object in memory is stale (e.g. it waited in a semaphore while another
+  // request refreshed the token), using its OLD refreshToken will cause the provider (e.g. OpenAI)
+  // to reject it with 'refresh_token_reused' and revoke the new token family.
+  // We MUST check if the DB has a newer token before proceeding with a network refresh.
+  if (credentials.connectionId) {
+    try {
+      const { getProviderConnectionById } = await import("../../src/lib/db/providers");
+      const dbConnection = await getProviderConnectionById(credentials.connectionId);
+      if (
+        dbConnection &&
+        dbConnection.refreshToken &&
+        dbConnection.refreshToken !== credentials.refreshToken
+      ) {
+        log?.info?.(
+          "TOKEN_REFRESH",
+          `Stale token detected in memory for ${provider}. Using refreshed token from DB.`
+        );
+
+        // If the DB token is not expired, we can just return it!
+        const now = Date.now();
+        const dbExpiresAt = dbConnection.expiresAt ? new Date(dbConnection.expiresAt).getTime() : 0;
+
+        if (dbExpiresAt > now + 60000) {
+          // 60 seconds buffer
+          log?.info?.("TOKEN_REFRESH", `DB token is still valid. Skipping OAuth refresh.`);
+          return {
+            accessToken: dbConnection.accessToken,
+            refreshToken: dbConnection.refreshToken,
+            expiresIn: dbConnection.expiresIn,
+          };
+        } else {
+          // DB token is also expired, but it's the NEWEST one. We must use it to refresh.
+          credentials.refreshToken = dbConnection.refreshToken;
+          credentials.accessToken = dbConnection.accessToken;
+        }
+      }
+    } catch (e) {
+      log?.warn?.(
+        "TOKEN_REFRESH",
+        `Failed to check DB for stale token: ${e instanceof Error ? e.message : String(e)}`
+      );
+    }
   }
 
   const cacheKey = getRefreshCacheKey(provider, credentials.refreshToken);
