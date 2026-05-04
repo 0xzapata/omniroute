@@ -15,7 +15,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: fix/xiaomi-mimo-provider
+          ref: main
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -31,11 +31,10 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          target: runner-base
+          target: runner-cli
           platforms: linux/amd64
           push: true
           tags: |
-            ghcr.io/gi99lin/omniroute:fix-xiaomi-mimo-provider
-            ghcr.io/gi99lin/omniroute:latest
+            ghcr.io/0xzapata/omniroute:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max

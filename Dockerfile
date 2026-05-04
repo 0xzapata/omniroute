@@ -13,7 +13,7 @@ ENV NPM_CONFIG_LEGACY_PEER_DEPS=true
 RUN if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
 
 COPY . ./
-RUN mkdir -p /app/data && npm run build -- --webpack
+RUN mkdir -p /var/lib/omniroute && npm run build -- --webpack
 
 FROM node:24.15.0-trixie-slim AS runner-base
 WORKDIR /app
@@ -30,11 +30,11 @@ ENV HOSTNAME=0.0.0.0
 ENV NODE_OPTIONS="--max-old-space-size=256"
 
 # Data directory inside Docker — must match the volume mount in docker-compose.yml
-ENV DATA_DIR=/app/data
+ENV DATA_DIR=/var/lib/omniroute
 RUN apt-get update \
   && apt-get install -y --no-install-recommends libsecret-1-0 ca-certificates \
   && rm -rf /var/lib/apt/lists/*
-RUN mkdir -p /app/data
+RUN mkdir -p /var/lib/omniroute
 
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/static ./.next/static
@@ -73,19 +73,21 @@ RUN apt-get update \
 
 # Install AI CLI agents globally with graceful fallbacks for tools that may not be on npm/pip.
 # Claude CLI
-RUN npm install -g --no-audit --no-fund @anthropic-ai/claude-code 2>/dev/null || echo "claude-code installation skipped"
+RUN npm install -g --no-audit --no-fund @anthropic-ai/claude-code@latest 2>/dev/null || echo "claude-code installation skipped"
 # Cursor CLI
-RUN npm install -g --no-audit --no-fund cursor-cli 2>/dev/null || echo "cursor-cli installation skipped"
+RUN npm install -g --no-audit --no-fund cursor-cli@latest 2>/dev/null || echo "cursor-cli installation skipped"
 # Gemini CLI
-RUN npm install -g --no-audit --no-fund @google/generative-ai 2>/dev/null || echo "gemini-cli installation skipped"
+RUN npm install -g --no-audit --no-fund @google/generative-ai@latest 2>/dev/null || echo "gemini-cli installation skipped"
 # Codex CLI
-RUN npm install -g --no-audit --no-fund @openai/codex 2>/dev/null || echo "codex installation skipped"
+RUN npm install -g --no-audit --no-fund @openai/codex@latest 2>/dev/null || echo "codex installation skipped"
 # Kimi CLI (Python-based)
-RUN pip3 install --no-cache-dir kimi-cli 2>/dev/null || echo "kimi-cli installation skipped"
+RUN pip3 install --no-cache-dir --break-system-packages kimi-cli 2>/dev/null || echo "kimi-cli installation skipped"
 # OpenClaw agent
 RUN npm install -g --no-audit --no-fund openclaw@latest 2>/dev/null || echo "openclaw installation skipped"
 # Droid CLI
-RUN npm install -g --no-audit --no-fund droid 2>/dev/null || echo "droid installation skipped"
+RUN npm install -g --no-audit --no-fund droid@latest 2>/dev/null || echo "droid installation skipped"
+# Kilo CLI
+RUN npm install -g --no-audit --no-fund @kilocode/cli@latest 2>/dev/null || echo "kilo-cli installation skipped"
 
 # Create persistent home directory structure for CLI configs and cache
 RUN mkdir -p /root/.config /root/.cache /root/.local/share /root/.ssh && chmod 700 /root/.ssh
