@@ -2,7 +2,7 @@ name: Build Fork Image (ghcr.io)
 
 on:
   push:
-    branches: [main, zeabur-build]
+    branches: [zeabur-build]
   workflow_dispatch:
 
 permissions:
