@@ -33,10 +33,10 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          target: runner-base
+          target: runner-cli
           platforms: linux/amd64
           push: true
           tags: |
-            ghcr.io/gi99lin/omniroute:latest
+            ghcr.io/0xzapata/omniroute:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
