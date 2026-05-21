@@ -3,20 +3,12 @@ name: Build and Push to GHCR
 on:
   push:
     branches:
-      - main
+      - zeabur
     paths:
       - "Dockerfile"
       - "package.json"
       - "docker-compose.yml"
       - ".github/workflows/ghcr-publish.yml"
-  release:
-    types: [published]
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "Version tag to build (e.g. 1.0.0)"
-        required: false
-        type: string
 
 env:
   REGISTRY: ghcr.io
