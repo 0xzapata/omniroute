@@ -80,8 +80,8 @@ jobs:
         run: |
           set -euo pipefail
           container_id="$(docker run -d \
-            -e JWT_SECRET=ghcr-smoke-test-jwt-secret \
-            -e API_KEY_SECRET=ghcr-smoke-test-api-key-secret \
+            -e JWT_SECRET=ghcr-smoke-test-jwt-secret-at-least-32-characters \
+            -e API_KEY_SECRET=0123456789abcdef0123456789abcdef \
             -e INITIAL_PASSWORD=ghcr-smoke-test-password \
             -e DATA_DIR=/tmp/omniroute-smoke \
             -p 20128:20128 \
@@ -89,6 +89,10 @@ jobs:
           trap 'docker logs "$container_id" || true; docker rm -f "$container_id" || true' EXIT
 
           for attempt in {1..30}; do
+            if [ "$(docker inspect -f '{{.State.Running}}' "$container_id")" != "true" ]; then
+              exit 1
+            fi
+
             if docker exec "$container_id" node scripts/dev/healthcheck.mjs; then
               exit 0
             fi
