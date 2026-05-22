@@ -52,9 +52,9 @@ COPY --from=builder /app/node_modules/split2 ./node_modules/split2
 COPY --from=builder /app/src/lib/db/migrations ./migrations
 ENV OMNIROUTE_MIGRATIONS_DIR=/app/migrations
 
-COPY --from=builder /app/scripts/run-standalone.mjs ./run-standalone.mjs
-COPY --from=builder /app/scripts/runtime-env.mjs ./runtime-env.mjs
-COPY --from=builder /app/scripts/bootstrap-env.mjs ./bootstrap-env.mjs
+COPY --from=builder /app/scripts/dev/run-standalone.mjs ./run-standalone.mjs
+COPY --from=builder /app/scripts/build/runtime-env.mjs ./runtime-env.mjs
+COPY --from=builder /app/scripts/build/bootstrap-env.mjs ./bootstrap-env.mjs
 COPY --from=builder /app/scripts/dev/healthcheck.mjs ./healthcheck.mjs
 
 EXPOSE 20128
