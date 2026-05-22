@@ -55,7 +55,7 @@ ENV OMNIROUTE_MIGRATIONS_DIR=/app/migrations
 COPY --from=builder /app/scripts/run-standalone.mjs ./run-standalone.mjs
 COPY --from=builder /app/scripts/runtime-env.mjs ./runtime-env.mjs
 COPY --from=builder /app/scripts/bootstrap-env.mjs ./bootstrap-env.mjs
-COPY --from=builder /app/scripts/healthcheck.mjs ./healthcheck.mjs
+COPY --from=builder /app/scripts/dev/healthcheck.mjs ./healthcheck.mjs
 
 EXPOSE 20128
 
