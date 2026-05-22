@@ -9,6 +9,7 @@ import {
   GITHUB_COPILOT_CHAT_USER_AGENT,
   GITHUB_COPILOT_EDITOR_VERSION,
 } from "@omniroute/open-sse/config/providerHeaderProfiles.ts";
+import { resolvePublicCred } from "@omniroute/open-sse/utils/publicCreds.ts";
 import { buildGitLabOAuthEndpoints, GITLAB_DUO_DEFAULT_BASE_URL } from "../gitlab";
 
 /**
@@ -235,6 +236,17 @@ export const KIRO_CONFIG = {
   authMethods: ["builder-id", "idc", "google", "github", "import"],
 };
 
+export const WINDSURF_CONFIG = {
+  authorizeUrl: "https://app.devin.ai/editor/signin",
+  apiServerUrl: "https://server.codeium.com",
+  exchangePath: "/exa.seat_management_pb.SeatManagementService/ExchangePKCEAuthorizationCode",
+  inferenceUrl: "https://server.codeium.com",
+  callbackPath: "/auth/callback",
+  callbackPort: 0,
+  codeChallengeMethod: "S256",
+  firebaseApiKey: resolvePublicCred("windsurf_fb", "WINDSURF_FIREBASE_API_KEY"),
+};
+
 // Cursor OAuth Configuration (Import Token from Cursor IDE)
 // Cursor stores credentials in SQLite database: state.vscdb
 // Keys: cursorAuth/accessToken, storage.serviceMachineId
@@ -283,4 +295,6 @@ export const PROVIDERS = {
   CURSOR: "cursor",
   KILOCODE: "kilocode",
   CLINE: "cline",
+  WINDSURF: "windsurf",
+  DEVIN_CLI: "devin-cli",
 };
