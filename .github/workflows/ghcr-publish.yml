@@ -66,6 +66,37 @@ jobs:
             type=sha,prefix={{branch}}-
             type=raw,value=latest,enable={{is_default_branch}}
 
+      - name: Build Docker image for smoke check
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: ${{ matrix.target }}
+          load: true
+          tags: omniroute-smoke:${{ matrix.target }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+
+      - name: Smoke test Docker image
+        run: |
+          set -euo pipefail
+          container_id="$(docker run -d \
+            -e JWT_SECRET=ghcr-smoke-test-jwt-secret \
+            -e API_KEY_SECRET=ghcr-smoke-test-api-key-secret \
+            -e INITIAL_PASSWORD=ghcr-smoke-test-password \
+            -e DATA_DIR=/tmp/omniroute-smoke \
+            -p 20128:20128 \
+            omniroute-smoke:${{ matrix.target }})"
+          trap 'docker logs "$container_id" || true; docker rm -f "$container_id" || true' EXIT
+
+          for attempt in {1..30}; do
+            if docker exec "$container_id" node scripts/dev/healthcheck.mjs; then
+              exit 0
+            fi
+            sleep 2
+          done
+
+          exit 1
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
