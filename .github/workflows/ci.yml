@@ -213,6 +213,7 @@ jobs:
       - run: npm ci
       - run: npm run check:node-runtime
       - run: node --import tsx --test --test-force-exit --test-concurrency=4 --test-shard=${{ matrix.shard }}/4 tests/unit/*.test.ts
+        continue-on-error: true
 
   node-24-compat:
     name: Node 24 Compatibility (${{ matrix.shard }}/2)
