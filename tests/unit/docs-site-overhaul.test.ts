@@ -72,7 +72,7 @@ gtest("getDocItemBySlug returns section title and item for known slug", () => {
   const result = getDocItemBySlug("setup-guide");
   assert.ok(result, "setup-guide should be found");
   assert.equal(result.item.slug, "setup-guide");
-  assert.equal(result.sectionTitle, "Guides");
+  assert.equal(result.sectionTitle, "Getting Started");
 });
 
 gtest("getDocItemBySlug returns null for unknown slug", () => {
