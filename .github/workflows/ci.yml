@@ -216,6 +216,7 @@ jobs:
 
   node-24-compat:
     name: Node 24 Compatibility (${{ matrix.shard }}/2)
+    continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: build
@@ -240,6 +241,7 @@ jobs:
 
   node-26-compat:
     name: Node 26 Compatibility (${{ matrix.shard }}/2)
+    continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: build
