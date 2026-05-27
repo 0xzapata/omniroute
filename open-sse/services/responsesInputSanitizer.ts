@@ -34,7 +34,10 @@ function truncateInputItemName(item: unknown): unknown {
   const record = toRecord(item);
   if (!record) return item;
   if (
-    (record.type === "function_call" || record.type === "function_call_output") &&
+    (record.type === "function_call" ||
+      record.type === "function_call_output" ||
+      record.type === "computer_call" ||
+      record.type === "computer_call_output") &&
     typeof record.name === "string" &&
     !/^[a-zA-Z0-9_-]{1,128}$/.test(record.name)
   ) {

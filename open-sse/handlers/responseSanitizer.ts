@@ -512,6 +512,29 @@ function sanitizeResponsesOutputItem(item: unknown, index: number): JsonRecord |
     };
   }
 
+  if (type === "computer_call") {
+    const callId = toString(itemRecord.call_id) || toString(itemRecord.id) || `call_${index}`;
+    return {
+      id: toString(itemRecord.id) || `cc_${callId}`,
+      type: "computer_call",
+      call_id: callId,
+      action: toString(itemRecord.action) || "",
+      pending_safety_checks:
+        typeof itemRecord.pending_safety_checks === "boolean"
+          ? itemRecord.pending_safety_checks
+          : false,
+    };
+  }
+
+  if (type === "computer_call_output") {
+    return {
+      id: toString(itemRecord.id) || `cco_${toString(itemRecord.call_id) || index}`,
+      type: "computer_call_output",
+      call_id: toString(itemRecord.call_id) || "",
+      output: itemRecord.output ?? "",
+    };
+  }
+
   return { ...itemRecord, type };
 }
 

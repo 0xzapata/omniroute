@@ -386,15 +386,17 @@ const CODEX_HOSTED_TOOL_TYPES: ReadonlySet<string> = new Set([
   "image_generation",
   "web_search",
   "web_search_preview",
+  "web_search_preview_2025_03_11",
   "file_search",
   "computer",
+  "computer_use",
   "computer_use_preview",
   "code_interpreter",
   "mcp",
   "local_shell",
 ]);
 
-function normalizeCodexTools(body: Record<string, unknown>): void {
+export function normalizeCodexTools(body: Record<string, unknown>): void {
   if (!Array.isArray(body.tools)) return;
 
   const validToolNames = new Set<string>();
@@ -428,6 +430,18 @@ function normalizeCodexTools(body: Record<string, unknown>): void {
         return false;
       }
       if (CODEX_HOSTED_TOOL_TYPES.has(toolType)) {
+        const hostedName =
+          typeof tool.name === "string"
+            ? tool.name
+            : typeof tool.display_name === "string"
+              ? tool.display_name
+              : tool.function &&
+                  typeof tool.function === "object" &&
+                  !Array.isArray(tool.function) &&
+                  typeof (tool.function as Record<string, unknown>).name === "string"
+                ? ((tool.function as Record<string, unknown>).name as string)
+                : toolType;
+        validToolNames.add(hostedName.trim());
         return true;
       }
       console.debug(`[Codex] dropping unknown hosted tool type: ${toolType}`);
@@ -495,6 +509,9 @@ function normalizeCodexTools(body: Record<string, unknown>): void {
     if (toolChoice.type === "function") {
       const rawName = typeof toolChoice.name === "string" ? toolChoice.name.trim() : "";
       if (!rawName || !validToolNames.has(rawName)) {
+        console.warn(
+          `[Codex] dropping tool_choice for "${rawName}": not in validToolNames (known: ${[...validToolNames].join(", ") || "(none)"})`
+        );
         delete body.tool_choice;
       }
     }
