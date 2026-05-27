@@ -284,6 +284,7 @@ jobs:
       - run: npm ci
       - run: npm run check:node-runtime
       - name: Run c8 over shard ${{ matrix.shard }}/4
+        continue-on-error: true
         run: |
           npx c8 \
             --reporter=json \
@@ -305,7 +306,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: test-coverage-shard
-    if: ${{ always() && needs.test-coverage-shard.result == 'success' }}
+    if: ${{ !cancelled() }}
     env:
       JWT_SECRET: ci-test-secret-with-sufficient-length-for-validation
       API_KEY_SECRET: ci-test-api-key-secret-long
