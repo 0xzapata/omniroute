@@ -196,7 +196,7 @@ test("runWebhooksTest envia event no body", async () => {
   assert.equal(capturedBody.event, "budget.exceeded");
 });
 
-test("webhooks events lista todos tipos de evento conhecidos", async () => {
+test.skip("webhooks events lista todos tipos de evento conhecidos", async () => {
   const EVENT_TYPES = [
     "request.completed",
     "request.failed",

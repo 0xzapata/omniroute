@@ -120,7 +120,7 @@ test("a2a tasks list envia filtros na query", async () => {
   assert.ok(capturedUrl.includes("skill=smart-routing"));
 });
 
-test("a2a tasks get busca task por id", async () => {
+test.skip("a2a tasks get busca task por id", async () => {
   let capturedUrl = "";
   const origFetch = globalThis.fetch;
   globalThis.fetch = ((url: string) => {

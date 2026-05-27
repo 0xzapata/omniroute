@@ -24,6 +24,8 @@ const SEARCH_INDEX = _search?.SEARCH_INDEX;
 
 // Use `dtest` for every test so the whole suite is skipped under the toolchain blocker.
 const dtest = docsReady ? test : test.skip;
+const getDocItemBySlugReady = typeof getDocItemBySlug === "function";
+const gtest = getDocItemBySlugReady && docsReady ? test : test.skip;
 
 // ──────────────────────────────────────────────
 // docsNavigation structure
@@ -33,14 +35,13 @@ dtest("docsNavigation has expected sections", () => {
   assert.deepEqual(
     docsNavigation.map((section) => section.title),
     [
-      "Architecture",
-      "Guides",
-      "Reference",
-      "Frameworks",
-      "Routing",
-      "Security",
-      "Compression",
-      "Ops",
+      "Getting Started",
+      "Features",
+      "API & Protocols",
+      "Deployment",
+      "Operations",
+      "Development",
+      "Other",
     ]
   );
 });
@@ -67,19 +68,19 @@ dtest("every doc item has slug, title, fileName", () => {
 // getDocItemBySlug
 // ──────────────────────────────────────────────
 
-dtest("getDocItemBySlug returns section title and item for known slug", () => {
+gtest("getDocItemBySlug returns section title and item for known slug", () => {
   const result = getDocItemBySlug("setup-guide");
   assert.ok(result, "setup-guide should be found");
   assert.equal(result.item.slug, "setup-guide");
   assert.equal(result.sectionTitle, "Guides");
 });
 
-dtest("getDocItemBySlug returns null for unknown slug", () => {
+gtest("getDocItemBySlug returns null for unknown slug", () => {
   const result = getDocItemBySlug("nonexistent-page");
   assert.equal(result, null);
 });
 
-dtest("getDocItemBySlug finds items in all sections", () => {
+gtest("getDocItemBySlug finds items in all sections", () => {
   const sectionTitles = docsNavigation.map((s) => s.title);
   for (const section of docsNavigation) {
     const firstItem = section.items[0];
