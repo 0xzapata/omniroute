@@ -65,7 +65,6 @@ function sanitizeInputItem(item: unknown): unknown {
     typeof next.name === "string" &&
     !/^[a-zA-Z0-9_-]{1,128}$/.test(next.name)
   ) {
-  ) {
     next = { ...next, name: sanitizeFunctionName(next.name) };
   }
   return next;
