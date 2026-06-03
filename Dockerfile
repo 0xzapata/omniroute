@@ -1,21 +1,3 @@
-FROM node:24.15.0-trixie-slim AS builder
-WORKDIR /app
-
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends libsecret-1-0 ca-certificates \
-  && rm -rf /var/lib/apt/lists/*
-
-COPY package*.json ./
-COPY scripts/postinstall.mjs ./scripts/postinstall.mjs
-COPY scripts/build/postinstall.mjs ./scripts/build/postinstall.mjs
-COPY scripts/build/postinstallSupport.mjs ./scripts/build/postinstallSupport.mjs
-COPY scripts/build/native-binary-compat.mjs ./scripts/build/native-binary-compat.mjs
-ENV NPM_CONFIG_LEGACY_PEER_DEPS=true
-RUN if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
-
-COPY . ./
-RUN mkdir -p /var/lib/omniroute && npm run build -- --webpack
-
 FROM node:24.15.0-trixie-slim AS runner-base
 WORKDIR /app
 
@@ -33,30 +15,41 @@ ENV NODE_OPTIONS="--max-old-space-size=${OMNIROUTE_MEMORY_MB}"
 
 # Data directory inside Docker — must match the volume mount in docker-compose.yml
 ENV DATA_DIR=/var/lib/omniroute
+
+# Install system dependencies
 RUN apt-get update \
   && apt-get install -y --no-install-recommends libsecret-1-0 ca-certificates \
   && rm -rf /var/lib/apt/lists/*
-RUN mkdir -p /var/lib/omniroute
 
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/.next/standalone ./
-# Explicitly copy @swc/helpers — not always traced by standalone output but needed at runtime
-COPY --from=builder /app/node_modules/@swc/helpers ./node_modules/@swc/helpers
-# Explicitly copy pino transport dependencies — pino spawns a worker that requires
-# pino-abstract-transport at runtime; Next.js standalone trace does not capture it (#449)
-COPY --from=builder /app/node_modules/pino-abstract-transport ./node_modules/pino-abstract-transport
-COPY --from=builder /app/node_modules/pino-pretty ./node_modules/pino-pretty
-COPY --from=builder /app/node_modules/split2 ./node_modules/split2
-# Migration SQL files are read via fs.readFileSync at runtime and are NOT
-# traced by Next.js standalone output — copy them explicitly.
-COPY --from=builder /app/src/lib/db/migrations ./migrations
+# Build stage - install deps and build
+COPY package*.json ./
+COPY scripts/postinstall.mjs ./scripts/postinstall.mjs
+COPY scripts/build/postinstall.mjs ./scripts/build/postinstall.mjs
+COPY scripts/build/postinstallSupport.mjs ./scripts/build/postinstallSupport.mjs
+COPY scripts/build/native-binary-compat.mjs ./scripts/build/native-binary-compat.mjs
+ENV NPM_CONFIG_LEGACY_PEER_DEPS=true
+RUN if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
+
+COPY . ./
+RUN mkdir -p /var/lib/omniroute && npm run build -- --webpack
+
+# Keep only runtime files
+RUN mv public public.tmp && \
+    mv .next/static static.tmp && \
+    mv .next/standalone standalone.tmp && \
+    rm -rf .next && \
+    mkdir -p .next && \
+    mv public.tmp public && \
+    mv static.tmp .next/static && \
+    mv standalone.tmp/* . && \
+    rmdir standalone.tmp
+
+# Explicitly keep runtime dependencies that Next.js standalone doesn't trace
+# (already in node_modules from build, no COPY --from needed)
+
+# Copy migrations explicitly (not traced by Next.js)
+RUN cp -r src/lib/db/migrations ./migrations
 ENV OMNIROUTE_MIGRATIONS_DIR=/app/migrations
-
-COPY --from=builder /app/scripts/dev/run-standalone.mjs ./scripts/dev/run-standalone.mjs
-COPY --from=builder /app/scripts/build/runtime-env.mjs ./scripts/build/runtime-env.mjs
-COPY --from=builder /app/scripts/build/bootstrap-env.mjs ./scripts/build/bootstrap-env.mjs
-COPY --from=builder /app/scripts/dev/healthcheck.mjs ./scripts/dev/healthcheck.mjs
 
 EXPOSE 20128
 
