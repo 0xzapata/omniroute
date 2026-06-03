@@ -102,6 +102,8 @@ USER node
 
 FROM runner-base AS runner-cli
 
+USER root
+
 # Install system dependencies required by CLI agents (git+ssh references, Python for some tools).
 RUN apt-get update \
   && apt-get install -y --no-install-recommends git ca-certificates docker.io docker-compose python3 python3-pip \

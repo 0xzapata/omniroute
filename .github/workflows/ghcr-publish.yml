@@ -40,17 +40,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract version from release tag or input
+      - name: Extract version from commit SHA
         id: version
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.version }}" ]; then
-            VERSION="${{ inputs.version }}"
-          elif [ "${{ github.event_name }}" = "release" ]; then
-            VERSION="${GITHUB_REF_NAME}"
-            VERSION="${VERSION#v}"
-          else
-            VERSION="${GITHUB_SHA::8}"
-          fi
+          VERSION="${GITHUB_SHA::8}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Building Docker image: $IMAGE_NAME:$VERSION-${{ matrix.target }}"
 
@@ -61,10 +54,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=ref,event=branch
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix={{branch}}-
-            type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build Docker image for smoke check
         uses: docker/build-push-action@v6
@@ -102,6 +92,7 @@ jobs:
           exit 1
 
       - name: Build and push Docker image
+        if: matrix.target != 'runner-cli'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -111,6 +102,22 @@ jobs:
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}-${{ matrix.target }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-${{ matrix.target }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push runner-cli Docker image
+        if: matrix.target == 'runner-cli'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: ${{ matrix.target }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}-${{ matrix.target }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-${{ matrix.target }}
+            ghcr.io/0xzapata/omniroute:latest
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
