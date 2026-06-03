@@ -130,9 +130,14 @@ export async function resolveModelOrError(
     !isCodexNativeResponsesRequest(body, endpointPath, requestHeaders) &&
     (await hasOnlyActiveCodexAccount())
   ) {
-    log.info("ROUTING", `${modelStr} → codex/gpt-5.5-medium (Codex-only active account)`);
+    // #2877: keep the bare model id (do NOT bake a `-medium` suffix). The Codex
+    // executor reads a model-name suffix as an explicit `modelEffort` that (per
+    // #2331) overrides the client's `reasoning.effort`, so injecting `-medium`
+    // here silently demoted a genuine `reasoning.effort=xhigh`. The default
+    // effort still comes from the connection fallback when the client sends none.
+    log.info("ROUTING", `${modelStr} → codex/gpt-5.5 (Codex-only active account)`);
     modelInfo.provider = "codex";
-    modelInfo.model = "gpt-5.5-medium";
+    modelInfo.model = "gpt-5.5";
   }
 
   // Forced-rewrite: codex provider doesn't serve DeepSeek/Qwen/Kimi/etc. Reroute
@@ -601,7 +606,8 @@ export function safeLogEvents({
       clientRawRequest?.headers?.["x-real-ip"] ||
       clientRawRequest?.headers?.["cf-connecting-ip"] ||
       null;
-    const publicIp = rawIp ? rawIp.split(",")[0].trim() : null;
+    const rawIpValue = Array.isArray(rawIp) ? rawIp[0] : rawIp;
+    const clientIp = typeof rawIpValue === "string" ? rawIpValue.split(",")[0].trim() : null;
 
     logProxyEvent({
       status: result.success
@@ -614,7 +620,7 @@ export function safeLogEvents({
       levelId: proxyInfo?.levelId || null,
       provider,
       targetUrl: `${provider}/${model}`,
-      publicIp,
+      clientIp,
       latencyMs: proxyLatency,
       error: result.success ? null : result.error || null,
       connectionId: credentials.connectionId,

@@ -11,10 +11,11 @@ import ProviderIcon from "@/shared/components/ProviderIcon";
 import { AI_PROVIDERS, NOAUTH_PROVIDERS, OAUTH_PROVIDERS } from "@/shared/constants/providers";
 import { useNotificationStore } from "@/store/notificationStore";
 import { copyToClipboard } from "@/shared/utils/clipboard";
+import { getProviderDisplayLabel } from "@/shared/utils/providerDisplayLabel";
 import { useIsElectron, useOpenExternal } from "@/shared/hooks/useElectron";
 
 const ProviderTopology = dynamic(() => import("../home/ProviderTopology"), { ssr: false });
-const ProviderLimits = dynamic(() => import("./usage/components/ProviderLimits"), { ssr: false });
+const ProviderQuotaWidget = dynamic(() => import("../home/ProviderQuotaWidget"), { ssr: false });
 import type { NewsAnnouncement } from "@/shared/utils/releaseNotes";
 
 type UpdateStep = {
@@ -117,6 +118,9 @@ export default function HomePageClient({ machineId }: HomePageClientProps) {
   const [selectedProvider, setSelectedProvider] = useState(null);
   const [providerMetrics, setProviderMetrics] = useState<Record<string, ProviderMetricSummary>>({});
   const [activeRequests, setActiveRequests] = useState<ActiveRequestSummary[]>([]);
+  const [providerNodes, setProviderNodes] = useState<
+    Array<{ id?: string; prefix?: string; name?: string }>
+  >([]);
 
   const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
   const [updating, setUpdating] = useState(false);
@@ -196,6 +200,8 @@ export default function HomePageClient({ machineId }: HomePageClientProps) {
   const [pinProviderQuotaToHome, setPinProviderQuotaToHome] = useState(false);
   const [showQuickStartOnHome, setShowQuickStartOnHome] = useState(true); // default on
   const [showProviderTopologyOnHome, setShowProviderTopologyOnHome] = useState(true); // default on
+  const [autoRefreshProviderQuota, setAutoRefreshProviderQuota] = useState(false);
+  const [autoRefreshProviderQuotaInterval, setAutoRefreshProviderQuotaInterval] = useState(180);
 
   useEffect(() => {
     // Fetch the pin settings (lightweight)
@@ -211,6 +217,12 @@ export default function HomePageClient({ machineId }: HomePageClientProps) {
           }
           if (typeof data.showProviderTopologyOnHome === "boolean") {
             setShowProviderTopologyOnHome(data.showProviderTopologyOnHome);
+          }
+          if (typeof data.autoRefreshProviderQuota === "boolean") {
+            setAutoRefreshProviderQuota(data.autoRefreshProviderQuota);
+          }
+          if (typeof data.autoRefreshProviderQuotaInterval === "number") {
+            setAutoRefreshProviderQuotaInterval(data.autoRefreshProviderQuotaInterval);
           }
         }
       })
@@ -259,6 +271,14 @@ export default function HomePageClient({ machineId }: HomePageClientProps) {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // Fetch provider nodes for display labels (compat providers)
+  useEffect(() => {
+    fetch("/api/provider-nodes")
+      .then((r) => (r.ok ? r.json() : { nodes: [] }))
+      .then((d) => setProviderNodes(d.nodes || []))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -456,10 +476,16 @@ export default function HomePageClient({ machineId }: HomePageClientProps) {
       const canonicalProviderId = normalizeProviderId(rawProviderId);
       if (!canonicalProviderId || byProvider.has(canonicalProviderId)) return;
 
+      const resolvedName =
+        getProviderDisplayLabel(rawProviderId, providerNodes) ||
+        name ||
+        providerConfig[canonicalProviderId]?.name ||
+        rawProviderId;
+
       byProvider.set(canonicalProviderId, {
         id: canonicalProviderId,
         provider: canonicalProviderId,
-        name: name || providerConfig[canonicalProviderId]?.name || rawProviderId,
+        name: resolvedName,
       });
     };
 
@@ -470,7 +496,7 @@ export default function HomePageClient({ machineId }: HomePageClientProps) {
     activeRequests.forEach((request) => addProvider(request.provider));
 
     return Array.from(byProvider.values());
-  }, [providerStats, providerMetrics, activeRequests]);
+  }, [providerStats, providerMetrics, activeRequests, providerNodes]);
 
   const topologyActiveRequests = useMemo(
     () =>
@@ -1066,7 +1092,11 @@ export default function HomePageClient({ machineId }: HomePageClientProps) {
       {/* Pinned Provider Quota Limits (compact, no filters) */}
       {pinProviderQuotaToHome && (
         <Suspense fallback={<CardSkeleton />}>
-          <ProviderLimits showFilters={false} />
+          <ProviderQuotaWidget
+            autoRefreshInterval={
+              autoRefreshProviderQuota ? autoRefreshProviderQuotaInterval : 0
+            }
+          />
         </Suspense>
       )}
 

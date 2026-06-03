@@ -71,6 +71,8 @@ const IGNORE_FROM_CODE = new Set([
   "NEXT_RUNTIME",
   "NODE_TEST_CONTEXT",
   "VITEST",
+  // Instruction snippet shown to users (Traffic Inspector HttpProxySnippetCard) — not OmniRoute config.
+  "NODE_TLS_REJECT_UNAUTHORIZED",
   // CI providers (set by the runner).
   "GITHUB_BASE_REF",
   "GITHUB_BASE_SHA",
@@ -122,6 +124,9 @@ const IGNORE_FROM_CODE = new Set([
   // Node.js module resolution path — OS/Node internal, not an OmniRoute config var.
   // Referenced in resolveSpawnArgs (ninerouter) to pass bundled native modules to subprocess.
   "NODE_PATH",
+  // NVIDIA diagnostic/test helpers used only by ad-hoc scripts.
+  "NVIDIA_BASE_URL",
+  "NVIDIA_MODEL",
 ]);
 
 // Vars documented in ENVIRONMENT.md but intentionally absent from .env.example.
@@ -162,7 +167,17 @@ const DOC_ONLY_ALLOWLIST = new Set([
 
 // Vars present in .env.example but intentionally absent from ENVIRONMENT.md.
 // Empty today — kept for forward compatibility / explicit exemption.
-const ENV_ONLY_ALLOWLIST = new Set([]);
+const ENV_ONLY_ALLOWLIST = new Set([
+  // Documented in .env.example but not yet in docs/reference/ENVIRONMENT.md
+  "CODEX_REFRESH_SPACING_MS",
+  "DEBUG",
+  "HEAP_PRESSURE_THRESHOLD_MB",
+  "OMNIRROUTE_TRACE",
+  "PII_TEST_BYPASS_MIN_WINDOW",
+  "PII_WINDOW_SIZE",
+  "TRAE_STREAM_TIMEOUT_MS",
+  "TRAE_TOKEN",
+]);
 
 // ─── Parsing helpers ───────────────────────────────────────────────────────
 

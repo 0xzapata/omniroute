@@ -4,6 +4,12 @@
 .omnivscodeagent/
 omnirouteCloud/
 omnirouteSite/
+_cache/
+_ideia/
+_mono_repo/
+_references/
+_tasks/
+
 
 # Memory Bank and Cursor rules (local-only AI agent context)
 memory-bank/
@@ -15,6 +21,7 @@ memory-bank/
 .claude/scheduled_tasks/
 .claude/sessions/
 .claude/state.json
+.claude/settings.local.json
 
 # Root-level underscore-prefixed directories (private/draft — never commit)
 /_*/
@@ -33,6 +40,12 @@ node_modules/
 !.yarn/versions
 .data/
 .next-playwright/
+.agents/
+workflows/
+.omo/
+
+# devbox
+.devbox/
 
 # testing
 coverage/
@@ -182,3 +195,12 @@ scripts/i18n/_pending-keys.json
 
 # Fumadocs generated source
 .source/
+
+# AI agent local settings and configs
+.agents/
+.antigravitycli/
+.claude/
+
+# PR Reviews and local feedback files
+pr_reviews*.json
+
