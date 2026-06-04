@@ -36,21 +36,20 @@ RUN mkdir -p /var/lib/omniroute \
   && NODE_OPTIONS=--max-old-space-size=4096 npm run build -- --webpack
 
 # Keep only runtime files
-RUN mv public public.tmp && \
-    mv .next/static static.tmp && \
-    mv .next/standalone standalone.tmp && \
+RUN mv .next/static /tmp/static && \
+    mv .next/standalone /tmp/standalone && \
     rm -rf .next && \
+    find . -mindepth 1 -maxdepth 1 -exec rm -rf {} + && \
     mkdir -p .next && \
-    mv public.tmp public && \
-    mv static.tmp .next/static && \
-    mv standalone.tmp/* . && \
-    rmdir standalone.tmp
+    mv /tmp/static .next/static && \
+    cp -a /tmp/standalone/. . && \
+    rm -rf /tmp/standalone
 
 # Explicitly keep runtime dependencies that Next.js standalone doesn't trace
 # (already in node_modules from build, no COPY --from needed)
 
-# Copy migrations explicitly (not traced by Next.js)
-RUN cp -r src/lib/db/migrations ./migrations
+# Verify migrations were copied into the standalone output by the build script.
+RUN test -d ./migrations
 ENV OMNIROUTE_MIGRATIONS_DIR=/app/migrations
 
 EXPOSE 20128
