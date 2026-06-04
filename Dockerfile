@@ -28,7 +28,7 @@ COPY scripts/build/postinstall.mjs ./scripts/build/postinstall.mjs
 COPY scripts/build/postinstallSupport.mjs ./scripts/build/postinstallSupport.mjs
 COPY scripts/build/native-binary-compat.mjs ./scripts/build/native-binary-compat.mjs
 ENV NPM_CONFIG_LEGACY_PEER_DEPS=true
-RUN if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
+RUN if [ -f package-lock.json ]; then npm ci --no-audit --no-fund --ignore-scripts; else npm install --no-audit --no-fund --ignore-scripts; fi
 
 COPY . ./
 RUN mkdir -p /var/lib/omniroute \
