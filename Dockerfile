@@ -63,9 +63,9 @@ COPY --chmod=755 scripts/check-permissions.sh /tmp/check-permissions.sh
 ENTRYPOINT ["/tmp/check-permissions.sh"]
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD ["node", "scripts/dev/healthcheck.mjs"]
+  CMD ["node", "healthcheck.mjs"]
 
-CMD ["node", "scripts/dev/run-standalone.mjs"]
+CMD ["node", "dev/run-standalone.mjs"]
 
 # ── Runner Web (web-cookie providers: Gemini Web, Claude Turnstile) ───────────
 #
