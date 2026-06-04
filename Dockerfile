@@ -31,7 +31,9 @@ ENV NPM_CONFIG_LEGACY_PEER_DEPS=true
 RUN if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
 
 COPY . ./
-RUN mkdir -p /var/lib/omniroute && npm run build -- --webpack
+RUN mkdir -p /var/lib/omniroute \
+  && chown node:node /var/lib/omniroute \
+  && npm run build -- --webpack
 
 # Keep only runtime files
 RUN mv public public.tmp && \
@@ -130,3 +132,5 @@ RUN npm install -g --no-audit --no-fund @kilocode/cli@latest 2>/dev/null || echo
 
 # Create persistent home directory structure for CLI configs and cache
 RUN mkdir -p /root/.config /root/.cache /root/.local/share /root/.ssh && chmod 700 /root/.ssh
+
+USER node

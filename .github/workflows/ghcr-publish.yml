@@ -6,8 +6,14 @@ on:
       - zeabur
     paths:
       - "Dockerfile"
+      - ".dockerignore"
       - "package.json"
+      - "package-lock.json"
       - "docker-compose.yml"
+      - "scripts/check-permissions.sh"
+      - "scripts/dev/run-standalone.mjs"
+      - "scripts/dev/healthcheck.mjs"
+      - "scripts/build/**"
       - ".github/workflows/ghcr-publish.yml"
   workflow_dispatch:
 

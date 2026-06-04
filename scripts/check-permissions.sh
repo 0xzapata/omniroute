@@ -8,11 +8,13 @@ if [ -n "$OMNIROUTE_MEMORY_MB" ]; then
   export NODE_OPTIONS="${NODE_OPTIONS:-} --max-old-space-size=${OMNIROUTE_MEMORY_MB}"
 fi
 
-if [ -d "/app/data" ] && [ ! -w "/app/data" ]; then
-    echo "WARNING: /app/data is not writable by the current user (UID $(id -u))."
-    echo "Run this on the Docker host to fix:"
-  echo "  sudo chown -R $(id -u):$(id -g) /app/data"
-    echo "  chmod -R u+rwX ./data"
+data_dir="${DATA_DIR:-/app/data}"
+
+if [ -d "$data_dir" ] && [ ! -w "$data_dir" ]; then
+  echo "WARNING: $data_dir is not writable by the current user (UID $(id -u))."
+  echo "Run this on the Docker host to fix:"
+  echo "  sudo chown -R $(id -u):$(id -g) $data_dir"
+  echo "  chmod -R u+rwX ./data"
 fi
 
 exec "$@"
