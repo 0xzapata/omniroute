@@ -156,9 +156,7 @@ export interface CodexQuotaSnapshot {
  *   x-codex-5h-usage / x-codex-5h-limit / x-codex-5h-reset-at
  *   x-codex-7d-usage / x-codex-7d-limit / x-codex-7d-reset-at
  */
-export function parseCodexQuotaHeaders(
-  headers: Record<string, string>
-): CodexQuotaSnapshot | null {
+export function parseCodexQuotaHeaders(headers: Record<string, string>): CodexQuotaSnapshot | null {
   const usage5h = headers["x-codex-5h-usage"] ?? null;
   const limit5h = headers["x-codex-5h-limit"] ?? null;
   const resetAt5h = headers["x-codex-5h-reset-at"] ?? null;
@@ -486,7 +484,12 @@ export function normalizeCodexTools(
         return false;
       }
       if (CODEX_HOSTED_TOOL_TYPES.has(toolType)) {
-<<<<<<< HEAD
+        // #2980: drop the CLI-injected image_generation tool for free-plan
+        // accounts, which can't run it server-side (upstream 400 otherwise).
+        if (toolType === "image_generation" && options?.dropImageGeneration === true) {
+          return false;
+        }
+
         const hostedName =
           typeof tool.name === "string"
             ? tool.name
@@ -499,13 +502,6 @@ export function normalizeCodexTools(
                 ? ((tool.function as Record<string, unknown>).name as string)
                 : toolType;
         validToolNames.add(hostedName.trim());
-=======
-        // #2980: drop the CLI-injected image_generation tool for free-plan
-        // accounts, which can't run it server-side (upstream 400 otherwise).
-        if (toolType === "image_generation" && options?.dropImageGeneration === true) {
-          return false;
-        }
->>>>>>> upstream/main
         return true;
       }
       console.debug(`[Codex] dropping unknown hosted tool type: ${toolType}`);
