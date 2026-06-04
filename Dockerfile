@@ -7,7 +7,7 @@ LABEL org.opencontainers.image.title="omniroute" \
   org.opencontainers.image.source="https://github.com/diegosouzapw/OmniRoute" \
   org.opencontainers.image.licenses="MIT"
 
-ENV NODE_ENV=production
+ENV NODE_ENV=development
 ENV PORT=20128
 ENV HOSTNAME=0.0.0.0
 ENV OMNIROUTE_MEMORY_MB=1024
@@ -34,6 +34,7 @@ COPY . ./
 RUN mkdir -p /var/lib/omniroute \
   && chown node:node /var/lib/omniroute \
   && NODE_OPTIONS=--max-old-space-size=4096 npm run build -- --webpack
+ENV NODE_ENV=production
 
 # Keep only runtime files
 RUN mv public public.tmp && \
