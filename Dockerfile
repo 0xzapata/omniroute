@@ -7,7 +7,7 @@ LABEL org.opencontainers.image.title="omniroute" \
   org.opencontainers.image.source="https://github.com/diegosouzapw/OmniRoute" \
   org.opencontainers.image.licenses="MIT"
 
-ENV NODE_ENV=development
+ENV NODE_ENV=production
 ENV PORT=20128
 ENV HOSTNAME=0.0.0.0
 ENV OMNIROUTE_MEMORY_MB=1024
@@ -28,13 +28,12 @@ COPY scripts/build/postinstall.mjs ./scripts/build/postinstall.mjs
 COPY scripts/build/postinstallSupport.mjs ./scripts/build/postinstallSupport.mjs
 COPY scripts/build/native-binary-compat.mjs ./scripts/build/native-binary-compat.mjs
 ENV NPM_CONFIG_LEGACY_PEER_DEPS=true
-RUN if [ -f package-lock.json ]; then npm ci --no-audit --no-fund --ignore-scripts; else npm install --no-audit --no-fund --ignore-scripts; fi
+RUN if [ -f package-lock.json ]; then npm ci --include=dev --no-audit --no-fund --ignore-scripts; else npm install --include=dev --no-audit --no-fund --ignore-scripts; fi
 
 COPY . ./
 RUN mkdir -p /var/lib/omniroute \
   && chown node:node /var/lib/omniroute \
   && NODE_OPTIONS=--max-old-space-size=4096 npm run build -- --webpack
-ENV NODE_ENV=production
 
 # Keep only runtime files
 RUN mv public public.tmp && \
