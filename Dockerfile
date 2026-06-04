@@ -33,7 +33,7 @@ RUN if [ -f package-lock.json ]; then npm ci --no-audit --no-fund --ignore-scrip
 COPY . ./
 RUN mkdir -p /var/lib/omniroute \
   && chown node:node /var/lib/omniroute \
-  && npm run build -- --webpack
+  && NODE_OPTIONS=--max-old-space-size=4096 npm run build -- --webpack
 
 # Keep only runtime files
 RUN mv public public.tmp && \
