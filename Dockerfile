@@ -24,7 +24,13 @@ ENV NPM_CONFIG_LEGACY_PEER_DEPS=true
 # We REQUIRE a committed package-lock.json so resolved dependency versions
 # are reproducible.
 RUN test -f package-lock.json   || (echo "package-lock.json is required for reproducible Docker builds" >&2 && exit 1)
-RUN --mount=type=cache,target=/root/.npm   npm ci --no-audit --no-fund --legacy-peer-deps --ignore-scripts   && npm rebuild better-sqlite3   && node -e "require('better-sqlite3')(':memory:').close()"
+# --build-from-source forces node-gyp to compile better_sqlite3.node against the
+# builder's exact Node ABI (node-v137 / Node 24) instead of pulling a prebuilt
+# binary whose layout (prebuilds/) the standalone assembler does not copy. This
+# guarantees node_modules/better-sqlite3/build/Release/better_sqlite3.node exists
+# so `bindings('better_sqlite3.node')` resolves it at runtime (bootstrap-env's
+# hasEncryptedCredentials needs SQLite before the server starts).
+RUN --mount=type=cache,target=/root/.npm   npm ci --no-audit --no-fund --legacy-peer-deps --ignore-scripts   && npm rebuild better-sqlite3 --build-from-source   && test -f node_modules/better-sqlite3/build/Release/better_sqlite3.node   && node -e "require('better-sqlite3')(':memory:').close()"
 
 # Use Turbopack for significant build speedup
 ENV OMNIROUTE_USE_TURBOPACK=1
