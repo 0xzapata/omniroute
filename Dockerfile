@@ -1,11 +1,41 @@
-FROM node:24.15.0-trixie-slim AS runner-base
+# -- Common base with runtime deps ------------------------------------------
+FROM node:24-trixie-slim AS base
 WORKDIR /app
 
-LABEL org.opencontainers.image.title="omniroute" \
-  org.opencontainers.image.description="Unified AI proxy — route any LLM through one endpoint" \
-  org.opencontainers.image.url="https://omniroute.online" \
-  org.opencontainers.image.source="https://github.com/diegosouzapw/OmniRoute" \
-  org.opencontainers.image.licenses="MIT"
+RUN --mount=type=cache,target=/var/cache/apt,sharing=shared   --mount=type=cache,target=/var/lib/apt/lists,sharing=shared   apt-get update   && apt-get install -y --no-install-recommends libsecret-1-0 ca-certificates   && rm -rf /var/lib/apt/lists/*
+
+# -- Builder ----------------------------------------------------------------
+FROM base AS builder
+
+# Build tools for native module compilation
+# apt-get update needed here because base's rm -rf clears the shared cache
+RUN --mount=type=cache,target=/var/cache/apt,sharing=shared   --mount=type=cache,target=/var/lib/apt/lists,sharing=shared   apt-get update   && apt-get install -y --no-install-recommends python3 make g++   && rm -rf /var/lib/apt/lists/*
+
+COPY package*.json ./
+COPY scripts/build/postinstall.mjs ./scripts/build/postinstall.mjs
+COPY scripts/build/postinstallSupport.mjs ./scripts/build/postinstallSupport.mjs
+COPY scripts/build/native-binary-compat.mjs ./scripts/build/native-binary-compat.mjs
+ENV NPM_CONFIG_LEGACY_PEER_DEPS=true
+# --ignore-scripts blocks broad dependency install/postinstall hooks, closing
+# the supply-chain attack surface where a transitive dep can run arbitrary code
+# at install time. better-sqlite3 still needs a native binding for the target
+# platform, so rebuild and smoke-test only that known runtime dependency below.
+#
+# We REQUIRE a committed package-lock.json so resolved dependency versions
+# are reproducible.
+RUN test -f package-lock.json   || (echo "package-lock.json is required for reproducible Docker builds" >&2 && exit 1)
+RUN --mount=type=cache,target=/root/.npm   npm ci --no-audit --no-fund --legacy-peer-deps --ignore-scripts   && npm rebuild better-sqlite3   && node -e "require('better-sqlite3')(':memory:').close()"
+
+# Use Turbopack for significant build speedup
+ENV OMNIROUTE_USE_TURBOPACK=1
+
+COPY . ./
+RUN --mount=type=cache,target=/app/.build/next/cache   mkdir -p /app/data && npm run build
+
+# -- Runner base ------------------------------------------------------------
+FROM base AS runner-base
+
+LABEL org.opencontainers.image.title="omniroute"   org.opencontainers.image.description="Unified AI proxy -- route any LLM through one endpoint"   org.opencontainers.image.url="https://omniroute.online"   org.opencontainers.image.source="https://github.com/diegosouzapw/OmniRoute"   org.opencontainers.image.licenses="MIT"
 
 ENV NODE_ENV=production
 ENV PORT=20128
@@ -13,44 +43,31 @@ ENV HOSTNAME=0.0.0.0
 ENV OMNIROUTE_MEMORY_MB=1024
 ENV NODE_OPTIONS="--max-old-space-size=${OMNIROUTE_MEMORY_MB}"
 
-# Data directory inside Docker — must match the volume mount in docker-compose.yml
+# Zeabur production data directory; docker-compose.prod.yml mounts this path.
 ENV DATA_DIR=/var/lib/omniroute
 
-# Install system dependencies
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends libsecret-1-0 ca-certificates \
-  && rm -rf /var/lib/apt/lists/*
-
-# Build stage - install deps and build
-COPY package*.json ./
-COPY scripts/postinstall.mjs ./scripts/postinstall.mjs
-COPY scripts/build/postinstall.mjs ./scripts/build/postinstall.mjs
-COPY scripts/build/postinstallSupport.mjs ./scripts/build/postinstallSupport.mjs
-COPY scripts/build/native-binary-compat.mjs ./scripts/build/native-binary-compat.mjs
-ENV NPM_CONFIG_LEGACY_PEER_DEPS=true
-RUN if [ -f package-lock.json ]; then npm ci --include=dev --no-audit --no-fund --ignore-scripts; else npm install --include=dev --no-audit --no-fund --ignore-scripts; fi
-
-COPY . ./
-RUN mkdir -p /var/lib/omniroute \
-  && chown node:node /var/lib/omniroute \
-  && NODE_OPTIONS=--max-old-space-size=4096 npm run build -- --webpack
-
-# Keep only runtime files
-RUN mv .next/static /tmp/static && \
-    mv .next/standalone /tmp/standalone && \
-    rm -rf .next && \
-    find . -mindepth 1 -maxdepth 1 -exec rm -rf {} + && \
-    mkdir -p .next && \
-    mv /tmp/static .next/static && \
-    cp -a /tmp/standalone/. . && \
-    rm -rf /tmp/standalone
-
-# Explicitly keep runtime dependencies that Next.js standalone doesn't trace
-# (already in node_modules from build, no COPY --from needed)
-
-# Verify migrations were copied into the standalone output by the build script.
-RUN test -d ./migrations
+# The standalone build + syncStandaloneExtraModules bundles all runtime files
+# (.next, node_modules, migrations, scripts, docs, etc.) into .build/next/standalone/.
+# Explicit overrides below cover modules that NFT tracing may miss.
+COPY --from=builder /app/.build/next/standalone ./
+# Explicitly copy @swc/helpers -- not always traced by standalone output but needed at runtime
+COPY --from=builder /app/node_modules/@swc/helpers ./node_modules/@swc/helpers
+# Explicitly copy better-sqlite3 -- native bindings are not reliably traced by
+# Next.js standalone output, but bootstrap-env requires SQLite before startup.
+COPY --from=builder /app/node_modules/better-sqlite3 ./node_modules/better-sqlite3
+# Explicitly copy pino transport dependencies -- pino spawns a worker that requires
+# pino-abstract-transport at runtime; Next.js standalone trace does not capture it (#449)
+COPY --from=builder /app/node_modules/pino-abstract-transport ./node_modules/pino-abstract-transport
+COPY --from=builder /app/node_modules/pino-pretty ./node_modules/pino-pretty
+COPY --from=builder /app/node_modules/split2 ./node_modules/split2
+# Migration SQL files are read via fs.readFileSync at runtime and are NOT
+# traced by Next.js standalone output -- copy them explicitly.
+COPY --from=builder /app/src/lib/db/migrations ./migrations
 ENV OMNIROUTE_MIGRATIONS_DIR=/app/migrations
+
+# Hand runtime paths to the baked-in `node` non-root user (UID/GID 1000) so the
+# app and mounted Zeabur data directory are writable without running as root.
+RUN mkdir -p /var/lib/omniroute   && chown -R node:node /app /var/lib/omniroute
 
 EXPOSE 20128
 
@@ -62,16 +79,15 @@ USER node
 COPY --chmod=755 scripts/check-permissions.sh /tmp/check-permissions.sh
 ENTRYPOINT ["/tmp/check-permissions.sh"]
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD ["node", "healthcheck.mjs"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3   CMD ["node", "healthcheck.mjs"]
 
 CMD ["node", "dev/run-standalone.mjs"]
 
-# ── Runner Web (web-cookie providers: Gemini Web, Claude Turnstile) ───────────
+# -- Runner Web (web-cookie providers: Gemini Web, Claude Turnstile) ----------
 #
 #  Two image flavors:
-#    runner-base  →  omniroute:VERSION        Lean base (~500 MB). No browsers.
-#    runner-web   →  omniroute:VERSION-web    +Chromium/Playwright (~800 MB).
+#    runner-base  ->  omniroute:VERSION        Lean base (~500 MB). No browsers.
+#    runner-web   ->  omniroute:VERSION-web    +Chromium/Playwright (~800 MB).
 #
 #  Use runner-web when you need web-cookie providers (gemini-web, claude-web,
 #  claude-turnstile). For all other providers runner-base is sufficient.
@@ -92,44 +108,30 @@ USER root
 # browsers land under /home/node which persists across image layers and is
 # accessible to the non-root runtime user.
 ENV PLAYWRIGHT_BROWSERS_PATH=/home/node/.cache/ms-playwright
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-  --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
-  apt-get update \
-  && npx playwright install chromium --with-deps \
-  && chown -R node:node /home/node/.cache \
-  && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked   --mount=type=cache,target=/var/lib/apt/lists,sharing=locked   apt-get update   && npx playwright install chromium --with-deps   && chown -R node:node /home/node/.cache   && rm -rf /var/lib/apt/lists/*
 
 USER node
 
 FROM runner-base AS runner-cli
 
+# Install CLI tools as root, then return to the `node` non-root runtime user.
 USER root
 
-# Install system dependencies required by CLI agents (git+ssh references, Python for some tools).
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends git ca-certificates docker.io docker-compose python3 python3-pip \
-  && rm -rf /var/lib/apt/lists/* \
-  && git config --system url."https://github.com/".insteadOf "ssh://git@github.com/"
+# Install system dependencies required by CLI agents (git+ssh references, Docker access,
+# Python for Python-based tools).
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked   --mount=type=cache,target=/var/lib/apt/lists,sharing=locked   apt-get update   && apt-get install -y --no-install-recommends git ca-certificates docker.io docker-compose python3 python3-pip   && rm -rf /var/lib/apt/lists/*   && git config --system url."https://github.com/".insteadOf "ssh://git@github.com/"
 
 # Install AI CLI agents globally with graceful fallbacks for tools that may not be on npm/pip.
-# Claude CLI
-RUN npm install -g --no-audit --no-fund @anthropic-ai/claude-code@latest 2>/dev/null || echo "claude-code installation skipped"
-# Cursor CLI
-RUN npm install -g --no-audit --no-fund cursor-cli@latest 2>/dev/null || echo "cursor-cli installation skipped"
-# Gemini CLI
-RUN npm install -g --no-audit --no-fund @google/generative-ai@latest 2>/dev/null || echo "gemini-cli installation skipped"
-# Codex CLI
-RUN npm install -g --no-audit --no-fund @openai/codex@latest 2>/dev/null || echo "codex installation skipped"
-# Kimi CLI (Python-based)
+RUN --mount=type=cache,target=/root/.npm   npm install -g --no-audit --no-fund @anthropic-ai/claude-code@latest 2>/dev/null || echo "claude-code installation skipped"
+RUN --mount=type=cache,target=/root/.npm   npm install -g --no-audit --no-fund cursor-cli@latest 2>/dev/null || echo "cursor-cli installation skipped"
+RUN --mount=type=cache,target=/root/.npm   npm install -g --no-audit --no-fund @google/generative-ai@latest 2>/dev/null || echo "gemini-cli installation skipped"
+RUN --mount=type=cache,target=/root/.npm   npm install -g --no-audit --no-fund @openai/codex@latest 2>/dev/null || echo "codex installation skipped"
 RUN pip3 install --no-cache-dir --break-system-packages kimi-cli 2>/dev/null || echo "kimi-cli installation skipped"
-# OpenClaw agent
-RUN npm install -g --no-audit --no-fund openclaw@latest 2>/dev/null || echo "openclaw installation skipped"
-# Droid CLI
-RUN npm install -g --no-audit --no-fund droid@latest 2>/dev/null || echo "droid installation skipped"
-# Kilo CLI
-RUN npm install -g --no-audit --no-fund @kilocode/cli@latest 2>/dev/null || echo "kilo-cli installation skipped"
+RUN --mount=type=cache,target=/root/.npm   npm install -g --no-audit --no-fund openclaw@latest 2>/dev/null || echo "openclaw installation skipped"
+RUN --mount=type=cache,target=/root/.npm   npm install -g --no-audit --no-fund droid@latest 2>/dev/null || echo "droid installation skipped"
+RUN --mount=type=cache,target=/root/.npm   npm install -g --no-audit --no-fund @kilocode/cli@latest 2>/dev/null || echo "kilo-cli installation skipped"
 
-# Create persistent home directory structure for CLI configs and cache
+# Create persistent home directory structure for CLI configs and cache.
 RUN mkdir -p /root/.config /root/.cache /root/.local/share /root/.ssh && chmod 700 /root/.ssh
 
 USER node
