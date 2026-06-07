@@ -122,10 +122,12 @@ FROM runner-base AS runner-cli
 
 # Install CLI tools as root, then return to the `node` non-root runtime user.
 USER root
+ARG TARGETARCH
+ARG AGY_VERSION="1.0.4"
 
 # Install system dependencies required by CLI agents (git+ssh references, Docker access,
 # Python for Python-based tools).
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked   --mount=type=cache,target=/var/lib/apt/lists,sharing=locked   apt-get update   && apt-get install -y --no-install-recommends git ca-certificates docker.io docker-compose python3 python3-pip   && rm -rf /var/lib/apt/lists/*   && git config --system url."https://github.com/".insteadOf "ssh://git@github.com/"
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked   --mount=type=cache,target=/var/lib/apt/lists,sharing=locked   apt-get update   && apt-get install -y --no-install-recommends git ca-certificates curl docker.io docker-compose python3 python3-pip   && rm -rf /var/lib/apt/lists/*   && git config --system url."https://github.com/".insteadOf "ssh://git@github.com/"
 
 # Install AI CLI agents globally with graceful fallbacks for tools that may not be on npm/pip.
 RUN --mount=type=cache,target=/root/.npm   npm install -g --no-audit --no-fund @anthropic-ai/claude-code@latest 2>/dev/null || echo "claude-code installation skipped"
@@ -136,6 +138,19 @@ RUN pip3 install --no-cache-dir --break-system-packages kimi-cli 2>/dev/null || 
 RUN --mount=type=cache,target=/root/.npm   npm install -g --no-audit --no-fund openclaw@latest 2>/dev/null || echo "openclaw installation skipped"
 RUN --mount=type=cache,target=/root/.npm   npm install -g --no-audit --no-fund droid@latest 2>/dev/null || echo "droid installation skipped"
 RUN --mount=type=cache,target=/root/.npm   npm install -g --no-audit --no-fund @kilocode/cli@latest 2>/dev/null || echo "kilo-cli installation skipped"
+RUN set -eu; \
+  case "${TARGETARCH}" in \
+    amd64) AGY_ARCH="linux_x64" ;; \
+    arm64) AGY_ARCH="linux_arm64" ;; \
+    *) echo "unsupported TARGETARCH for agy: ${TARGETARCH}" >&2; exit 1 ;; \
+  esac; \
+  AGY_URL="https://github.com/google-antigravity/antigravity-cli/releases/download/${AGY_VERSION}/agy_cli_${AGY_ARCH}.tar.gz"; \
+  TMP_DIR="$(mktemp -d)"; \
+  (curl -fsSL "${AGY_URL}" -o "${TMP_DIR}/agy.tar.gz" \
+    && tar -xzf "${TMP_DIR}/agy.tar.gz" -C "${TMP_DIR}" agy \
+    && install -m 755 "${TMP_DIR}/agy" /usr/local/bin/agy) \
+    || echo "agy install skipped"; \
+  rm -rf "${TMP_DIR}"
 
 # Create persistent home directory structure for CLI configs and cache.
 RUN mkdir -p /root/.config /root/.cache /root/.local/share /root/.ssh && chmod 700 /root/.ssh
