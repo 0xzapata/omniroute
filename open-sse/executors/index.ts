@@ -19,6 +19,7 @@ import { NineRouterExecutor } from "./ninerouter.ts";
 import { PerplexityWebExecutor } from "./perplexity-web.ts";
 import { GrokWebExecutor } from "./grok-web.ts";
 import { GeminiWebExecutor } from "./gemini-web.ts";
+import { GeminiBusinessExecutor } from "./gemini-business.ts";
 import { ChatGptWebExecutor } from "./chatgpt-web.ts";
 import { BlackboxWebExecutor } from "./blackbox-web.ts";
 import { MuseSparkWebExecutor } from "./muse-spark-web.ts";
@@ -47,6 +48,10 @@ import { KimiWebExecutor } from "./kimi-web.ts";
 import { DoubaoWebExecutor } from "./doubao-web.ts";
 import { QwenWebExecutor } from "./qwen-web.ts";
 import { KimiExecutor } from "./kimi.ts"
+import { TheOldLlmExecutor } from "./theoldllm.ts";
+import { ChipotleExecutor } from "./chipotle.ts";
+import { LMArenaExecutor } from "./lmarena.ts";
+import { MimocodeExecutor } from "./mimocode.ts";
 
 const executors = {
   antigravity: new AntigravityExecutor(),
@@ -92,6 +97,8 @@ const executors = {
   "cw-web": new ClaudeWebWithAutoRefresh(), // Alias
   "gemini-web": new GeminiWebExecutor(),
   gweb: new GeminiWebExecutor(), // Alias
+  "gemini-business": new GeminiBusinessExecutor(),
+  gembiz: new GeminiBusinessExecutor(), // Alias
   "chatgpt-web": new ChatGptWebExecutor(),
   "cgpt-web": new ChatGptWebExecutor(), // Alias
   "blackbox-web": new BlackboxWebExecutor(),
@@ -134,6 +141,14 @@ const executors = {
   db: new DoubaoWebExecutor(), // Alias
   "qwen-web": new QwenWebExecutor(),
   qw: new QwenWebExecutor(), // Alias
+  theoldllm: new TheOldLlmExecutor(),
+  tllm: new TheOldLlmExecutor(), // Alias
+  chipotle: new ChipotleExecutor(),
+  pepper: new ChipotleExecutor(), // Alias
+  lmarena: new LMArenaExecutor(),
+  lma: new LMArenaExecutor(), // Alias
+  mimocode: new MimocodeExecutor(),
+  mcode: new MimocodeExecutor(), // Alias
 };
 
 const defaultCache = new Map();
@@ -190,3 +205,7 @@ export { AdaptaWebExecutor } from "./adapta-web.ts";
 export { T3ChatWebExecutor } from "./t3-chat-web.ts";
 export { InnerAiExecutor } from "./inner-ai.ts";
 export { QwenWebExecutor } from "./qwen-web.ts";
+export { TheOldLlmExecutor } from "./theoldllm.ts";
+export { ChipotleExecutor } from "./chipotle.ts";
+export { LMArenaExecutor } from "./lmarena.ts";
+export { MimocodeExecutor } from "./mimocode.ts";
