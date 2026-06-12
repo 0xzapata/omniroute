@@ -3,6 +3,7 @@ import fsSync from "fs";
 import os from "os";
 import path from "path";
 import { spawn, execFileSync } from "child_process";
+import { getHermesHome } from "@/lib/cli-helper/config-generator/hermesHome";
 
 const VALID_RUNTIME_MODES = new Set(["auto", "host", "container"]);
 const FALSE_VALUES = new Set(["0", "false", "no", "off"]);
@@ -147,7 +148,10 @@ const CLI_TOOLS: Record<string, any> = {
     requiresBinary: true,
     healthcheckTimeoutMs: 4000,
     paths: {
-      config: ".hermes/config.yaml",
+      // The relative path is kept for documentation purposes; getCliConfigPaths()
+      // has a special case for hermes-agent that calls getHermesHome() instead of
+      // getCliConfigHome(), so HERMES_HOME is always honoured (#3628).
+      config: "config.yaml",
     },
   },
   amp: {
@@ -932,16 +936,15 @@ export const getCliConfigHome = () => {
 };
 
 export const resolveOpencodeConfigDir = (
-  platform = process.platform,
+  _platform = process.platform,
   env: NodeJS.ProcessEnv = process.env,
   homeDir = os.homedir()
 ) => {
-  const isWin = platform === "win32";
-  if (isWin) {
-    const appData = String(env.APPDATA || "").trim();
-    return appData || path.join(homeDir, "AppData", "Roaming");
-  }
-
+  // #3330: OpenCode reads its config from XDG `~/.config/opencode/` on ALL
+  // platforms — including Windows, where it uses `%USERPROFILE%\.config`, NOT
+  // `%APPDATA%`. Writing to %APPDATA% on Windows put the file where OpenCode
+  // never looks, so dashboard-saved config silently had no effect. `_platform`
+  // is kept in the signature for call-site/test compatibility.
   const xdgConfigHome = String(env.XDG_CONFIG_HOME || "").trim();
   return xdgConfigHome || path.join(homeDir, ".config");
 };
@@ -961,6 +964,13 @@ export const getCliConfigPaths = (toolId: string) => {
   if (toolId === "opencode") {
     return {
       config: getOpenCodeConfigPath(),
+    };
+  }
+
+  // hermes-agent: honour HERMES_HOME env var instead of the generic CLI_CONFIG_HOME (#3628).
+  if (toolId === "hermes-agent") {
+    return {
+      config: path.join(getHermesHome(), "config.yaml"),
     };
   }
 

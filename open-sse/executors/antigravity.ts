@@ -8,6 +8,7 @@ import {
   type ProviderCredentials,
 } from "./base.ts";
 import { applyFingerprint, isCliCompatEnabled } from "../config/cliFingerprints.ts";
+import { buildAntigravityUpstreamError } from "./antigravityUpstreamError.ts";
 import {
   PROVIDERS,
   OAUTH_ENDPOINTS,
@@ -193,7 +194,7 @@ function addAntigravityTextualToolCall(
 
 type AntigravityRequestEnvelope = Record<string, unknown> & {
   project: string;
-  model: string;
+  model?: string;
   userAgent: "antigravity" | "jetski";
   requestType: "agent" | "image_gen";
   requestId: string;
@@ -327,7 +328,11 @@ function markCreditsExhausted(accountId: string): void {
   creditsExhaustedUntil.set(accountId, Date.now() + CREDITS_EXHAUSTED_TTL_MS);
 }
 
-function processAntigravitySSEPayload(
+/**
+ * Accumulate one Antigravity SSE `data:` payload into `collected`. Exported for unit
+ * tests (the markdown / candidate-parts extraction branches). @internal
+ */
+export function processAntigravitySSEPayload(
   payload: string,
   collected: AntigravityCollectedStream,
   log?: { debug?: (scope: string, message: string) => void }
@@ -335,6 +340,15 @@ function processAntigravitySSEPayload(
   if (!payload || payload === "[DONE]") return;
   try {
     const parsed = JSON.parse(payload);
+    const markdown =
+      typeof parsed?.markdown === "string"
+        ? parsed.markdown
+        : typeof parsed?.response?.markdown === "string"
+          ? parsed.response.markdown
+          : null;
+    if (markdown) {
+      collected.textContent += markdown;
+    }
     const candidate = parsed?.response?.candidates?.[0];
     if (candidate?.content?.parts) {
       for (const part of candidate.content.parts) {
@@ -660,7 +674,14 @@ export class AntigravityExecutor extends BaseExecutor {
             if (typeof p.text === "string" && p.text === "") return false;
             if (p.functionCall && !p.functionCall.name) return false;
 
-            return !p.thought && (hasFunctionCall || !p.thoughtSignature);
+            // Only strip if it's NOT our bypass sentinel.
+            // Antigravity models (like Gemini) need this sentinel to bypass 400 errors.
+            return (
+              !p.thought &&
+              (hasFunctionCall ||
+                !p.thoughtSignature ||
+                p.thoughtSignature === "skip_thought_signature_validator")
+            );
           }) || [];
         return { ...c, role, parts };
       }) || [];
@@ -1354,6 +1375,29 @@ export class AntigravityExecutor extends BaseExecutor {
         // For non-streaming clients, collect the SSE stream and return a synthetic
         // non-streaming Response so chatCore doesn't need to handle SSE conversion.
         if (!stream) {
+          // #3229: surface a real upstream error instead of masking a 4xx/5xx as an
+          // empty `chat.completion` envelope (collectStreamToResponse synthesizes a
+          // success-shaped body when the upstream returned no SSE data).
+          if (!response.ok) {
+            const rawBody = await response
+              .clone()
+              .text()
+              .catch(() => "");
+            const errorBody = buildAntigravityUpstreamError(
+              response.status,
+              response.statusText,
+              rawBody
+            );
+            return {
+              response: new Response(JSON.stringify(errorBody), {
+                status: response.status,
+                headers: { "Content-Type": "application/json" },
+              }),
+              url,
+              headers: finalHeaders,
+              transformedBody: attachToolNameMap(transformedBody, requestToolNameMap),
+            };
+          }
           const collected = await this.collectStreamToResponse(
             response,
             model,
