@@ -16,6 +16,9 @@
  */
 
 import { BaseExecutor, type ExecuteInput, type ProviderCredentials } from "./base.ts";
+import { describeChatGptWebHttpError } from "./chatgptWebErrors.ts";
+import { prepareToolMessages } from "../translator/webTools.ts";
+import { buildToolModeResponse } from "./chatgptWebTools.ts";
 import { createHash, randomUUID, randomBytes } from "node:crypto";
 import {
   tlsFetchChatGpt,
@@ -39,7 +42,7 @@ const CONV_URL = `${CHATGPT_BASE}/backend-api/f/conversation`;
 const USER_LAST_USED_MODEL_CONFIG_URL = `${CHATGPT_BASE}/backend-api/settings/user_last_used_model_config`;
 
 const CHATGPT_USER_AGENT =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:148.0) Gecko/20100101 Firefox/148.0";
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:152.0) Gecko/20100101 Firefox/152.0";
 
 // Captured from a real chatgpt.com browser session (April 2026).
 const OAI_CLIENT_VERSION = "prod-81e0c5cdf6140e8c5db714d613337f4aeab94029";
@@ -78,18 +81,15 @@ function deviceIdFor(cookie: string): string {
 // /backend-api/models on a logged-in account; "gpt-5-4-t-mini" is ChatGPT's
 // abbreviated slug for "GPT-5.4 Thinking Mini".
 const MODEL_MAP: Record<string, string> = {
+  "gpt-5.5-pro": "gpt-5-5-pro",
+  "gpt-5.5-thinking": "gpt-5-5-thinking",
+  "gpt-5.5": "gpt-5-5",
+  "gpt-5.4-pro": "gpt-5-4-pro",
+  "gpt-5.4-thinking": "gpt-5-4-thinking",
+  "gpt-5.4-thinking-mini": "gpt-5-4-t-mini",
   "gpt-5.3-instant": "gpt-5-3-instant",
   "gpt-5.3": "gpt-5-3",
   "gpt-5.3-mini": "gpt-5-3-mini",
-  "gpt-5.5-thinking": "gpt-5-5-thinking",
-  "gpt-5.4-thinking": "gpt-5-4-thinking",
-  "gpt-5.4-thinking-mini": "gpt-5-4-t-mini",
-  "gpt-5.2-instant": "gpt-5-2-instant",
-  "gpt-5.2": "gpt-5-2",
-  "gpt-5.2-thinking": "gpt-5-2-thinking",
-  "gpt-5.1": "gpt-5-1",
-  "gpt-5": "gpt-5",
-  "gpt-5-mini": "gpt-5-mini",
   o3: "o3",
 };
 
@@ -1562,28 +1562,15 @@ function buildStreamingResponse(
             }
           }
 
-          // If the assistant kicked off the async image_gen tool, the SSE
-          // stream ends with a "Processing image..." placeholder. Poll the
-          // conversation endpoint in the background for the final pointer.
-          // We only kick polling off if the in-stream pointers are empty —
-          // sometimes the synchronous path also fires and we already have one.
-          // Heartbeat helper: while we wait on long-running async work
-          // (WebSocket for image-gen, /files/download → 2-3 MB image fetch),
-          // the SSE stream goes quiet and Open WebUI's HTTP client times out
-          // at ~30s. We saw this in production: `disconnect: ResponseAborted`
-          // followed by "Controller is already closed".
-          //
-          // Layered traps to avoid:
-          //   - SSE comments (`: ...`) are silently ignored by aiohttp's
-          //     read-activity tracker.
-          //   - Empty `delta:{}` chunks ARE emitted by us but get filtered
-          //     out upstream by `hasValuableContent` in
-          //     `open-sse/utils/streamHelpers.ts` (it requires content,
-          //     role, or finish_reason on OpenAI chunks).
-          //
-          // So heartbeats are zero-width-space content deltas (`"​"`):
-          // they pass the valuable-content filter (non-empty content), reach
-          // the client as data events, and render as nothing visible.
+          // Async image_gen ends the SSE with a "Processing image..."
+          // placeholder; poll the conversation endpoint in the background for
+          // the final pointer (only when in-stream pointers are empty).
+          // Heartbeat: long async work (WebSocket image-gen, 2-3 MB image
+          // fetch) leaves the SSE quiet and Open WebUI times out at ~30s
+          // (`disconnect: ResponseAborted`). SSE comments and empty `delta:{}`
+          // chunks are both filtered upstream (`hasValuableContent` in
+          // open-sse/utils/streamHelpers.ts), so heartbeats are zero-width-space
+          // content deltas (`"​"`): they pass the filter and render invisibly.
           const startHeartbeat = (intervalMs = 5_000): (() => void) => {
             const heartbeatChunk = sseChunk({
               id: cid,
@@ -1749,7 +1736,9 @@ function buildStreamingResponse(
           );
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         } finally {
-          try { controller.close(); } catch {}
+          try {
+            controller.close();
+          } catch {}
         }
       },
     },
@@ -2467,6 +2456,13 @@ export class ChatGptWebExecutor extends BaseExecutor {
       };
     }
 
+    // Tool-call emulation (#5240): inject a `<tool>` contract when `tools` are
+    // present; parsed back on the response side. Mirrors qwen-web/perplexity-web.
+    const { hasTools, requestedTools, effectiveMessages } = prepareToolMessages(
+      (body || {}) as Record<string, unknown>,
+      messages as Array<{ role: string; content: unknown }>
+    );
+
     if (!credentials.apiKey) {
       return {
         response: errorResponse(
@@ -2654,7 +2650,7 @@ export class ChatGptWebExecutor extends BaseExecutor {
     }
 
     // 4. Build conversation request
-    const parsed = parseOpenAIMessages(messages);
+    const parsed = parseOpenAIMessages(effectiveMessages);
     if (!parsed.currentMsg.trim() && parsed.history.length === 0) {
       return {
         response: errorResponse(400, "Empty user message"),
@@ -2742,16 +2738,9 @@ export class ChatGptWebExecutor extends BaseExecutor {
       // upstream message is much more useful than our wrapper. Goes through
       // the executor logger so it respects the application's log config.
       log?.warn?.("CGPT-WEB", `conv ${status}: ${(response.text || "").slice(0, 400)}`);
-      let errMsg = `ChatGPT returned HTTP ${status}`;
+      const errMsg = describeChatGptWebHttpError(status);
       if (status === 401 || status === 403) {
-        errMsg =
-          "ChatGPT auth failed — session may have expired. Re-paste your __Secure-next-auth.session-token.";
         tokenCache.delete(cookieKey(cookie));
-      } else if (status === 404) {
-        errMsg =
-          "ChatGPT returned 404 — usually the model is no longer available on this account or the chat-requirements-token expired. Retry will start a fresh conversation.";
-      } else if (status === 429) {
-        errMsg = "ChatGPT rate limited. Wait a moment and retry.";
       }
       log?.warn?.("CGPT-WEB", errMsg);
       return {
@@ -2797,8 +2786,11 @@ export class ChatGptWebExecutor extends BaseExecutor {
     const pollAsyncImage = (conversationId: string) =>
       pollForAsyncImage(conversationId, resolverCtx);
 
+    // Tool mode buffers (no live streaming) and is gated off the image-gen path.
+    const toolMode = hasTools && !forImageGen;
+
     let finalResponse: Response;
-    if (stream) {
+    if (stream && !toolMode) {
       const sseStream = buildStreamingResponse(
         bodyStream,
         model,
@@ -2829,6 +2821,13 @@ export class ChatGptWebExecutor extends BaseExecutor {
         log,
         signal
       );
+      if (toolMode) {
+        finalResponse = await buildToolModeResponse(finalResponse, requestedTools, stream, {
+          cid,
+          created,
+          model,
+        });
+      }
     }
 
     return { response: finalResponse, url: CONV_URL, headers, transformedBody: cgptBody };
