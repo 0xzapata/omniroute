@@ -159,7 +159,6 @@ RUN --mount=type=cache,target=/root/.npm   npm install -g --no-audit --no-fund c
 RUN --mount=type=cache,target=/root/.npm   npm install -g --no-audit --no-fund @google/generative-ai@latest 2>/dev/null || echo "gemini-cli installation skipped"
 RUN --mount=type=cache,target=/root/.npm   npm install -g --no-audit --no-fund @openai/codex@latest 2>/dev/null || echo "codex installation skipped"
 RUN pip3 install --no-cache-dir --break-system-packages kimi-cli 2>/dev/null || echo "kimi-cli installation skipped"
-RUN --mount=type=cache,target=/root/.npm   npm install -g --no-audit --no-fund openclaw@latest 2>/dev/null || echo "openclaw installation skipped"
 RUN --mount=type=cache,target=/root/.npm   npm install -g --no-audit --no-fund droid@latest 2>/dev/null || echo "droid installation skipped"
 RUN --mount=type=cache,target=/root/.npm   npm install -g --no-audit --no-fund @kilocode/cli@latest 2>/dev/null || echo "kilo-cli installation skipped"
 RUN set -eu; \
