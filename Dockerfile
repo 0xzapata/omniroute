@@ -19,10 +19,11 @@ FROM base AS builder
 RUN --mount=type=cache,target=/var/cache/apt,sharing=shared   --mount=type=cache,target=/var/lib/apt/lists,sharing=shared   apt-get update   && apt-get install -y --no-install-recommends python3 make g++   && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
-# Workspace package manifest MUST be present before `npm ci` so npm materializes the
-# workspace and installs its workspace-only deps (declared in open-sse/package.json, not
-# hoisted to root). Without this, `npm ci` skips them and `npm run build` fails with
-# "Module not found" (root cause of the v3.8.39 Docker build break). workspaces = ["open-sse"].
+# Workspace package manifests MUST be present before `npm ci` so npm materializes the
+# workspace and installs its workspace-only deps (e.g. safe-regex, @toon-format/toon —
+# declared in open-sse/package.json, not hoisted to root). Without this, `npm ci` skips
+# them and the build fails with "Module not found" (root cause of the v3.8.39 Docker
+# build break). workspaces = ["open-sse"].
 COPY open-sse/package.json ./open-sse/package.json
 COPY scripts/build/postinstall.mjs ./scripts/build/postinstall.mjs
 COPY scripts/build/postinstallSupport.mjs ./scripts/build/postinstallSupport.mjs
