@@ -57,7 +57,7 @@ RUN test -f package-lock.json \
   || (echo "package-lock.json is required for reproducible Docker builds" >&2 && exit 1)
 RUN --mount=type=cache,id=npm-cache,target=/root/.npm \
   npm ci --no-audit --no-fund --legacy-peer-deps --ignore-scripts \
-  && npm rebuild better-sqlite3 --build-from-source \
+  && npm_config_build_from_source=true npm rebuild better-sqlite3 \
   && test -f node_modules/better-sqlite3/build/Release/better_sqlite3.node \
   && node -e "require('better-sqlite3')(':memory:').close()"
 
