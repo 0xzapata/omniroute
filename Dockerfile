@@ -74,15 +74,19 @@ RUN --mount=type=cache,id=npm-cache,target=/root/.npm \
   && test -f node_modules/better-sqlite3/build/Release/better_sqlite3.node \
   && node -e "require('better-sqlite3')(':memory:').close()"
 
-# Build with Turbopack (stable in Next 16, the repo default). The v3.8.27-era
-# TurbopackInternalError panic ("entered unreachable code: there must be a path to a
-# root" in ImportTracer::get_traces) no longer reproduces on Next 16.2.9 — validated
-# 2026-07-05 with clean amd64 (12min14s, image smoke-tested: /api/monitoring/health
-# 200) and arm64 (qemu, exit 0, zero panic strings) builds. Turbopack cut the bare
-# build from 17min to 9min on the same 32-core box. Webpack stays available as the
-# escape hatch: `--build-arg`/-e OMNIROUTE_USE_TURBOPACK=0.
+# Build with webpack (the long-standing stable path). Turbopack was re-enabled on
+# 2026-07-09 (ccd79651a) but its standalone output is broken at runtime: the runner
+# image starts ("Next.js ✓ Ready") yet every request throws
+# `uncaughtException: file data stream has unexpected number of bytes` from a
+# corrupt `.build/next/server/chunks/_*.js` chunk, so the /api/monitoring/health
+# smoke test times out. This was masked while the better-sqlite3 rebuild was broken
+# (the build never reached the smoke step). Likely a Next 16.2.9→16.2.10 Turbopack
+# standalone-tracing regression or an npm 12 interaction; revisit once a Turbopack
+# standalone build produces a request-serving image. Webpack is slower (~17min vs
+# Turbopack's ~9min) but produces a working image. Flip to 1 to opt back into
+# Turbopack once the chunk-corruption issue is resolved.
 # See docs/ops/QUALITY_GATE_PLAYBOOK.md Parte 6.
-ENV OMNIROUTE_USE_TURBOPACK=1
+ENV OMNIROUTE_USE_TURBOPACK=0
 
 # Docker containers cannot run the MITM/Agent-Bridge stack (no host DNS/cert
 # access), so keep @/mitm/manager on the graceful stub (#3390). This flag is
