@@ -51,13 +51,26 @@ ENV NPM_CONFIG_LEGACY_PEER_DEPS=true
 # at install time. better-sqlite3 still needs a native binding for the target
 # platform, so rebuild and smoke-test only that known runtime dependency below.
 #
+# npm 12 (npm@latest, refreshed above) ships with `allowScripts` OFF by default, so
+# `npm rebuild` no longer runs a package's install script (better-sqlite3's
+# `prebuild-install || node-gyp rebuild`) unless explicitly allowed — it just warns
+# "install scripts blocked because they are not covered by allowScripts" and leaves
+# no native binding, failing the smoke test below. `--allow-scripts=<pkg>` is rejected
+# for project-scoped rebuilds (global/npx only), so we use
+# `--dangerously-allow-all-scripts` — the npm-sanctioned escape hatch. Scoped to
+# `npm rebuild better-sqlite3`, only that one trusted package's script runs; every
+# other transitive dep stays script-blocked by the `--ignore-scripts` ci above.
+# prebuild-install fetches the N-API prebuilt for this Node/ABI, falling back to a
+# local node-gyp build (python3/make/g++ installed above) if no prebuilt matches.
+# The `test -f` + `node -e require(...)` guard verifies the binding actually loads.
+#
 # We REQUIRE a committed package-lock.json so resolved dependency versions
 # are reproducible.
 RUN test -f package-lock.json \
   || (echo "package-lock.json is required for reproducible Docker builds" >&2 && exit 1)
 RUN --mount=type=cache,id=npm-cache,target=/root/.npm \
   npm ci --no-audit --no-fund --legacy-peer-deps --ignore-scripts \
-  && npm_config_build_from_source=true npm rebuild better-sqlite3 \
+  && npm rebuild better-sqlite3 --dangerously-allow-all-scripts \
   && test -f node_modules/better-sqlite3/build/Release/better_sqlite3.node \
   && node -e "require('better-sqlite3')(':memory:').close()"
 
