@@ -1,0 +1,136 @@
+name: Build and Push Candidate to GHCR
+
+# Candidate release builds. Publishes to :candidate and :v<version> tags ONLY —
+# never :latest. Used to test a new version (e.g. v3.8.46) on Zeabur before
+# promoting it to the stable :latest tag. amd64-only (Zeabur is amd64).
+
+on:
+  push:
+    branches:
+      - "release/candidate-*"
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: 0xzapata/omniroute
+  CANDIDATE_VERSION: "3.8.46"
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        target:
+          - runner-base
+          - runner-cli
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract version from commit SHA
+        id: version
+        run: |
+          VERSION="${GITHUB_SHA::8}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Building candidate image: $IMAGE_NAME:$VERSION-${{ matrix.target }}"
+
+      - name: Extract metadata for labels/tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+
+      - name: Build Docker image for smoke check
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: ${{ matrix.target }}
+          load: true
+          tags: omniroute-smoke:${{ matrix.target }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+
+      - name: Smoke test Docker image
+        run: |
+          set -euo pipefail
+          container_id="$(docker run -d \
+            -e JWT_SECRET=ghcr-smoke-test-jwt-secret-at-least-32-characters \
+            -e API_KEY_SECRET=0123456789abcdef0123456789abcdef \
+            -e INITIAL_PASSWORD=ghcr-smoke-test-password \
+            -e DATA_DIR=/tmp/omniroute-smoke \
+            -p 20128:20128 \
+            omniroute-smoke:${{ matrix.target }})"
+          trap 'docker logs "$container_id" || true; docker rm -f "$container_id" || true' EXIT
+
+          # First-run database migrations can take several minutes on GitHub's
+          # shared runners. Require the dashboard port to accept TCP connections
+          # before publishing (mirror the CLI readiness check).
+          for attempt in {1..240}; do
+            if [ "$(docker inspect -f '{{.State.Running}}' "$container_id")" != "true" ]; then
+              exit 1
+            fi
+
+            if docker exec "$container_id" node -e "const net = require('node:net'); const socket = net.connect({ host: '127.0.0.1', port: 20128, timeout: 1500 }, () => { socket.destroy(); process.exit(0); }); socket.on('timeout', () => { socket.destroy(); process.exit(1); }); socket.on('error', () => process.exit(1));"; then
+              exit 0
+            fi
+            if [ $((attempt % 30)) -eq 0 ]; then
+              docker logs --tail 80 "$container_id" || true
+            fi
+            sleep 2
+          done
+
+          exit 1
+
+      - name: Build and push candidate image (runner-base)
+        if: matrix.target != 'runner-cli'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: ${{ matrix.target }}
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}-${{ matrix.target }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:candidate-${{ matrix.target }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:v${{ env.CANDIDATE_VERSION }}-${{ matrix.target }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push candidate image (runner-cli)
+        if: matrix.target == 'runner-cli'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: ${{ matrix.target }}
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}-${{ matrix.target }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:candidate-${{ matrix.target }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:v${{ env.CANDIDATE_VERSION }}-${{ matrix.target }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:candidate
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:v${{ env.CANDIDATE_VERSION }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Inspect image
+        run: |
+          docker buildx imagetools inspect "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}-${{ matrix.target }}"
