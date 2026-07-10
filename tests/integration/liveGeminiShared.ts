@@ -482,14 +482,10 @@ export async function readSSEStream(response: Response): Promise<StreamResult> {
   let fullContent = "";
   let finishReason = "unknown";
   let totalTokens = 0;
-  let rawChunkCount = 0;
-  let dataLineCount = 0;
-  const debugLines: string[] = [];
 
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
-    rawChunkCount++;
 
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split("\n");
@@ -497,13 +493,8 @@ export async function readSSEStream(response: Response): Promise<StreamResult> {
 
     for (const line of lines) {
       if (!line.startsWith("data: ")) continue;
-      dataLineCount++;
       const data = line.slice(6).trim();
       if (data === "[DONE]") continue;
-
-      if (debugLines.length < 3) {
-        debugLines.push(data.slice(0, 200));
-      }
 
       try {
         const parsed = JSON.parse(data) as Record<string, unknown>;
@@ -511,7 +502,6 @@ export async function readSSEStream(response: Response): Promise<StreamResult> {
         if (choice) {
           const delta = choice.delta as Record<string, unknown> | undefined;
           if (delta?.content) fullContent += delta.content as string;
-          else if (delta?.reasoning_content) fullContent += delta.reasoning_content as string;
           if (choice.finish_reason) finishReason = choice.finish_reason as string;
         }
         const usage = parsed.usage as Record<string, number> | undefined;
@@ -525,27 +515,12 @@ export async function readSSEStream(response: Response): Promise<StreamResult> {
     }
   }
 
-  if (fullContent.length === 0 && rawChunkCount > 0) {
-    console.log(
-      `    [DEBUG] empty content: ${rawChunkCount} raw chunks, ${dataLineCount} data lines`
-    );
-    for (const d of debugLines) console.log(`    [DEBUG] data: ${d}`);
-  } else if (fullContent.length > 0 && fullContent.length < 1000 && finishReason === "unknown") {
-    console.log(
-      `    [DEBUG] suspicious content (${fullContent.length} chars, finish=${finishReason}): ${fullContent.slice(0, 300)}`
-    );
-  }
-
   return { fullContent, finishReason, totalTokens };
 }
 
 // --------------------------------------------------------------------------
 // Shared helper
 // --------------------------------------------------------------------------
-
-function ts(): string {
-  return new Date().toISOString().slice(11, 23); // HH:MM:SS.mmm
-}
 
 export async function sendAndValidate(
   tcName: string,
@@ -610,7 +585,7 @@ export async function sendAndValidate(
       const msPerToken = totalTokens > 0 ? (duration / totalTokens).toFixed(1) : "?";
 
       console.log(
-        `${ts()} ${tcName.padEnd(45)} ` +
+        `  ${tcName.padEnd(45)} ` +
           `HTTP ${response.status} | ` +
           `${Math.round(duration).toString().padStart(5)}ms | ` +
           `${String(messages.length).padStart(2)} msgs | ` +
@@ -622,33 +597,17 @@ export async function sendAndValidate(
       );
 
       if (response.status === 200) {
-        const isGoodFinish = finishReason === "stop" || finishReason === "length";
-        const isRetryable =
-          content.length === 0 ||
-          finishReason === "malformed_response" ||
-          finishReason === "content_filter" ||
-          (finishReason === "unknown" && totalTokens === 0);
-
-        if (isGoodFinish) {
-          // success — continue to return
-        } else if (isRetryable && attempt < MAX_RETRIES) {
-          const backoff = Math.min(RETRY_DELAY_MS * 2 ** (attempt - 1), 30_000);
-          const reason = content.length === 0 ? "empty content" : `finish: ${finishReason}`;
-          console.log(
-            `${ts()} ${tcName.padEnd(45)} RETRY ${attempt}/${MAX_RETRIES} after ${reason} (waiting ${Math.round(backoff / 1000)}s) | cid: ${correlationId}`
-          );
-          await new Promise((r) => setTimeout(r, backoff));
-          continue;
-        } else if (isRetryable) {
-          assert.fail(
-            `${ts()} ${tcName.padEnd(45)} ${finishReason === "malformed_response" ? "malformed_response" : "empty content"} after ${MAX_RETRIES} attempts | cid: ${correlationId}`
+        if (content.length > 0) {
+          assert.ok(
+            finishReason === "stop" || finishReason === "length",
+            `expected stop/length finish, got ${finishReason}`
           );
         } else {
-          assert.fail(`expected stop/length finish, got ${finishReason} | cid: ${correlationId}`);
+          assert.fail(`  ${tcName.padEnd(45)} WARNING: empty content returned`);
         }
       } else if ((response.status === 503 || response.status === 429) && attempt < MAX_RETRIES) {
         console.log(
-          `${ts()} ${tcName.padEnd(45)} RETRY ${attempt}/${MAX_RETRIES} after ${response.status} (waiting ${RETRY_DELAY_MS / 1000}s)`
+          `  ${tcName.padEnd(45)} RETRY ${attempt}/${MAX_RETRIES} after ${response.status} (waiting ${RETRY_DELAY_MS / 1000}s)`
         );
         await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
         continue;
@@ -669,12 +628,12 @@ export async function sendAndValidate(
       const errorMessage = err instanceof Error ? err.message : String(err);
       if ((errorMessage.includes("503") || errorMessage.includes("429")) && attempt < MAX_RETRIES) {
         console.log(
-          `${ts()} ${tcName.padEnd(45)} RETRY ${attempt}/${MAX_RETRIES} after error (waiting ${RETRY_DELAY_MS / 1000}s)`
+          `  ${tcName.padEnd(45)} RETRY ${attempt}/${MAX_RETRIES} after error (waiting ${RETRY_DELAY_MS / 1000}s)`
         );
         await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
         continue;
       }
-      console.log(`${ts()} ${tcName.padEnd(45)} FAILED: ${errorMessage}`);
+      console.log(`  ${tcName.padEnd(45)} FAILED: ${errorMessage}`);
       throw err;
     }
   }

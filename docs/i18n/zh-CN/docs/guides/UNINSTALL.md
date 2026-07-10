@@ -1,60 +1,56 @@
----
-title: "OmniRoute — 卸载指南"
-version: 3.8.40
-lastUpdated: 2026-06-28
----
+# OmniRoute — Uninstall Guide (中文 (简体))
 
-# OmniRoute — 卸载指南
-
-🌐 **Languages:** 🇺🇸 [English](../../../../docs/guides/UNINSTALL.md) | 🇧🇷 [Português (Brasil)](../../pt-BR/docs/guides/UNINSTALL.md) | 🇪🇸 [Español](../../es/docs/guides/UNINSTALL.md) | 🇫🇷 [Français](../../fr/docs/guides/UNINSTALL.md) | 🇮🇹 [Italiano](../../it/docs/guides/UNINSTALL.md) | 🇷🇺 [Русский](../../ru/docs/guides/UNINSTALL.md) | 🇨🇳 [中文 (简体)](../../zh-CN/docs/guides/UNINSTALL.md) | 🇩🇪 [Deutsch](../../de/docs/guides/UNINSTALL.md) | 🇮🇳 [हिन्दी](../../in/docs/guides/UNINSTALL.md) | 🇹🇭 [ไทย](../../th/docs/guides/UNINSTALL.md) | 🇺🇦 [Українська](../../uk-UA/docs/guides/UNINSTALL.md) | 🇸🇦 [العربية](../../ar/docs/guides/UNINSTALL.md) | 🇯🇵 [日本語](../../ja/docs/guides/UNINSTALL.md) | 🇻🇳 [Tiếng Việt](../../vi/docs/guides/UNINSTALL.md) | 🇧🇬 [Български](../../bg/docs/guides/UNINSTALL.md) | 🇩🇰 [Dansk](../../da/docs/guides/UNINSTALL.md) | 🇫🇮 [Suomi](../../fi/docs/guides/UNINSTALL.md) | 🇮🇱 [עברית](../../he/docs/guides/UNINSTALL.md) | 🇭🇺 [Magyar](../../hu/docs/guides/UNINSTALL.md) | 🇮🇩 [Bahasa Indonesia](../../id/docs/guides/UNINSTALL.md) | 🇰🇷 [한국어](../../ko/docs/guides/UNINSTALL.md) | 🇲🇾 [Bahasa Melayu](../../ms/docs/guides/UNINSTALL.md) | 🇳🇱 [Nederlands](../../nl/docs/guides/UNINSTALL.md) | 🇳🇴 [Norsk](../../no/docs/guides/UNINSTALL.md) | 🇵🇹 [Português (Portugal)](../../pt/docs/guides/UNINSTALL.md) | 🇷🇴 [Română](../../ro/docs/guides/UNINSTALL.md) | 🇵🇱 [Polski](../../pl/docs/guides/UNINSTALL.md) | 🇸🇰 [Slovenčina](../../sk/docs/guides/UNINSTALL.md) | 🇸🇪 [Svenska](../../sv/docs/guides/UNINSTALL.md) | 🇵🇭 [Filipino](../../phi/docs/guides/UNINSTALL.md) | 🇨🇿 [Čeština](../../cs/docs/guides/UNINSTALL.md)
-
-本指南介绍如何从系统中彻底移除 OmniRoute。
+🌐 **Languages:** 🇺🇸 [English](../../../../docs/UNINSTALL.md) · 🇸🇦 [ar](../../ar/docs/UNINSTALL.md) · 🇧🇬 [bg](../../bg/docs/UNINSTALL.md) · 🇧🇩 [bn](../../bn/docs/UNINSTALL.md) · 🇨🇿 [cs](../../cs/docs/UNINSTALL.md) · 🇩🇰 [da](../../da/docs/UNINSTALL.md) · 🇩🇪 [de](../../de/docs/UNINSTALL.md) · 🇪🇸 [es](../../es/docs/UNINSTALL.md) · 🇮🇷 [fa](../../fa/docs/UNINSTALL.md) · 🇫🇮 [fi](../../fi/docs/UNINSTALL.md) · 🇫🇷 [fr](../../fr/docs/UNINSTALL.md) · 🇮🇳 [gu](../../gu/docs/UNINSTALL.md) · 🇮🇱 [he](../../he/docs/UNINSTALL.md) · 🇮🇳 [hi](../../hi/docs/UNINSTALL.md) · 🇭🇺 [hu](../../hu/docs/UNINSTALL.md) · 🇮🇩 [id](../../id/docs/UNINSTALL.md) · 🇮🇹 [it](../../it/docs/UNINSTALL.md) · 🇯🇵 [ja](../../ja/docs/UNINSTALL.md) · 🇰🇷 [ko](../../ko/docs/UNINSTALL.md) · 🇮🇳 [mr](../../mr/docs/UNINSTALL.md) · 🇲🇾 [ms](../../ms/docs/UNINSTALL.md) · 🇳🇱 [nl](../../nl/docs/UNINSTALL.md) · 🇳🇴 [no](../../no/docs/UNINSTALL.md) · 🇵🇭 [phi](../../phi/docs/UNINSTALL.md) · 🇵🇱 [pl](../../pl/docs/UNINSTALL.md) · 🇵🇹 [pt](../../pt/docs/UNINSTALL.md) · 🇧🇷 [pt-BR](../../pt-BR/docs/UNINSTALL.md) · 🇷🇴 [ro](../../ro/docs/UNINSTALL.md) · 🇷🇺 [ru](../../ru/docs/UNINSTALL.md) · 🇸🇰 [sk](../../sk/docs/UNINSTALL.md) · 🇸🇪 [sv](../../sv/docs/UNINSTALL.md) · 🇰🇪 [sw](../../sw/docs/UNINSTALL.md) · 🇮🇳 [ta](../../ta/docs/UNINSTALL.md) · 🇮🇳 [te](../../te/docs/UNINSTALL.md) · 🇹🇭 [th](../../th/docs/UNINSTALL.md) · 🇹🇷 [tr](../../tr/docs/UNINSTALL.md) · 🇺🇦 [uk-UA](../../uk-UA/docs/UNINSTALL.md) · 🇵🇰 [ur](../../ur/docs/UNINSTALL.md) · 🇻🇳 [vi](../../vi/docs/UNINSTALL.md) · 🇨🇳 [zh-CN](../../zh-CN/docs/UNINSTALL.md)
 
 ---
 
-## 快速卸载（v3.6.2+）
+This guide covers how to cleanly remove OmniRoute from your system.
 
-OmniRoute 提供两个内置脚本用于干净移除：
+---
 
-### 保留数据
+## Quick Uninstall (v3.6.2+)
+
+OmniRoute provides two built-in scripts for clean removal:
+
+### Keep Your Data
 
 ```bash
 npm run uninstall
 ```
 
-此命令移除 OmniRoute 应用程序，但**保留** `~/.omniroute/` 中的数据库、配置、API Key 和服务商设置。如果你计划稍后重装并希望保留现有配置，请使用此方式。
+This removes the OmniRoute application but **preserves** your database, configurations, API keys, and provider settings in `~/.omniroute/`. Use this if you plan to reinstall later and want to keep your setup.
 
-### 完全移除
+### Full Removal
 
 ```bash
 npm run uninstall:full
 ```
 
-此命令移除应用程序并**永久删除**所有数据：
+This removes the application **and permanently erases** all data:
 
-- 数据库（`storage.sqlite`）
-- 服务商配置和 API Key
-- 备份文件
-- 日志文件
-- `~/.omniroute/` 目录下的所有文件
+- Database (`storage.sqlite`)
+- Provider configurations and API keys
+- Backup files
+- Log files
+- All files in the `~/.omniroute/` directory
 
-> ⚠️ **警告：** `npm run uninstall:full` 不可逆。所有服务商连接、Combo、API Key 和用量历史将被永久删除。
+> ⚠️ **Warning:** `npm run uninstall:full` is irreversible. All your provider connections, combos, API keys, and usage history will be permanently deleted.
 
 ---
 
-## 手动卸载
+## Manual Uninstall
 
-### npm 全局安装
+### NPM Global Install
 
 ```bash
-# 移除全局包
+# Remove the global package
 npm uninstall -g omniroute
 
-# （可选）删除数据目录
+# (Optional) Remove data directory
 rm -rf ~/.omniroute
 ```
 
-### pnpm 全局安装
+### pnpm Global Install
 
 ```bash
 pnpm uninstall -g omniroute
@@ -64,97 +60,97 @@ rm -rf ~/.omniroute
 ### Docker
 
 ```bash
-# 停止并移除容器
+# Stop and remove the container
 docker stop omniroute
 docker rm omniroute
 
-# 移除卷（删除所有数据）
+# Remove the volume (deletes all data)
 docker volume rm omniroute-data
 
-# （可选）移除镜像
+# (Optional) Remove the image
 docker rmi diegosouzapw/omniroute:latest
 ```
 
 ### Docker Compose
 
 ```bash
-# 停止并移除容器
+# Stop and remove containers
 docker compose down
 
-# 同时移除卷（删除所有数据）
+# Also remove volumes (deletes all data)
 docker compose down -v
 ```
 
-### Electron 桌面应用
+### Electron Desktop App
 
-**Windows：**
+**Windows:**
 
-- 打开 `设置 → 应用 → OmniRoute → 卸载`
-- 或从安装目录运行 NSIS 卸载程序
+- Open `Settings → Apps → OmniRoute → Uninstall`
+- Or run the NSIS uninstaller from the install directory
 
-**macOS：**
+**macOS:**
 
-- 将 `OmniRoute.app` 从 `/Applications` 拖入废纸篓
-- 删除数据：`rm -rf ~/Library/Application Support/omniroute`
+- Drag `OmniRoute.app` from `/Applications` to Trash
+- Remove data: `rm -rf ~/Library/Application Support/omniroute`
 
-**Linux：**
+**Linux:**
 
-- 删除 AppImage 文件
-- 删除数据：`rm -rf ~/.omniroute`
+- Remove the AppImage file
+- Remove data: `rm -rf ~/.omniroute`
 
-### 源码安装（git clone）
+### Source Install (git clone)
 
 ```bash
-# 删除克隆目录
+# Remove the cloned directory
 rm -rf /path/to/omniroute
 
-# （可选）删除数据目录
+# (Optional) Remove data directory
 rm -rf ~/.omniroute
 ```
 
 ---
 
-## 数据目录
+## Data Directories
 
-OmniRoute 默认将数据存储在以下位置：
+OmniRoute stores data in the following locations by default:
 
-| 平台          | 默认路径                      | 覆盖方式                   |
+| Platform      | Default Path                  | Override                  |
 | ------------- | ----------------------------- | ------------------------- |
-| Linux         | `~/.omniroute/`               | `DATA_DIR` 环境变量        |
-| macOS         | `~/.omniroute/`               | `DATA_DIR` 环境变量        |
-| Windows       | `%APPDATA%/omniroute/`        | `DATA_DIR` 环境变量        |
-| Docker        | `/app/data/`（挂载卷）         | `DATA_DIR` 环境变量        |
-| XDG 兼容      | `$XDG_CONFIG_HOME/omniroute/` | `XDG_CONFIG_HOME` 环境变量 |
+| Linux         | `~/.omniroute/`               | `DATA_DIR` env var        |
+| macOS         | `~/.omniroute/`               | `DATA_DIR` env var        |
+| Windows       | `%APPDATA%/omniroute/`        | `DATA_DIR` env var        |
+| Docker        | `/app/data/` (mounted volume) | `DATA_DIR` env var        |
+| XDG-compliant | `$XDG_CONFIG_HOME/omniroute/` | `XDG_CONFIG_HOME` env var |
 
-### 数据目录中的文件
+### Files in the data directory
 
-| 文件/目录             | 说明                                               |
-| --------------------- | -------------------------------------------------- |
-| `storage.sqlite`      | 主数据库（服务商、Combo、设置、Key）               |
-| `storage.sqlite-wal`  | SQLite 预写日志（临时文件）                            |
-| `storage.sqlite-shm`  | SQLite 共享内存（临时文件）                         |
-| `call_logs/`          | 请求载荷归档                                       |
-| `backups/`            | 自动数据库备份                                      |
-| `log.txt`             | 旧版请求日志（可选）                               |
+| File/Directory       | Description                                       |
+| -------------------- | ------------------------------------------------- |
+| `storage.sqlite`     | Main database (providers, combos, settings, keys) |
+| `storage.sqlite-wal` | SQLite write-ahead log (temporary)                |
+| `storage.sqlite-shm` | SQLite shared memory (temporary)                  |
+| `call_logs/`         | Request payload archives                          |
+| `backups/`           | Automatic database backups                        |
+| `log.txt`            | Legacy request log (optional)                     |
 
 ---
 
-## 验证完全移除
+## Verify Complete Removal
 
-卸载后，确认没有残留文件：
+After uninstalling, verify there are no remaining files:
 
 ```bash
-# 检查全局 npm 包
+# Check for global npm package
 npm list -g omniroute 2>/dev/null
 
-# 检查数据目录
+# Check for data directory
 ls -la ~/.omniroute/ 2>/dev/null
 
-# 检查运行中的进程
+# Check for running processes
 pgrep -f omniroute
 ```
 
-如果有进程仍在运行，停止它：
+If any process is still running, stop it:
 
 ```bash
 pkill -f omniroute

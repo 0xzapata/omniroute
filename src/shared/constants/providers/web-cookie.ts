@@ -185,21 +185,6 @@ export const WEB_COOKIE_PROVIDERS = {
       "Paste the full Cookie header from lmarena.ai (DevTools → Network → request → Cookie). The session is now split across arena-auth-prod-v1.0, .1, … — copy the whole header. Optional — works with free tier for basic comparisons.",
     riskNoticeVariant: "webCookie",
   },
-  "yuanbao-web": {
-    id: "yuanbao-web",
-    alias: "ybw",
-    name: "Tencent Yuanbao (Free)",
-    icon: "auto_awesome",
-    color: "#0052D9",
-    textIcon: "YB",
-    website: "https://yuanbao.tencent.com",
-    hasFree: true,
-    freeNote:
-      "Free consumer web session — DeepSeek V3/R1 and Hunyuan / Hunyuan-T1, optional web search. No subscription required. Rate limits apply.",
-    authHint:
-      "Log in to yuanbao.tencent.com, then paste the full Cookie header (DevTools → Network → any /api request → Request Headers → Cookie). It must contain hy_user and hy_token.",
-    riskNoticeVariant: "webCookie",
-  },
   huggingchat: {
     id: "huggingchat",
     // "hc" belongs to the hackclub provider; huggingchat uses its own id as alias.
@@ -266,13 +251,12 @@ export const WEB_COOKIE_PROVIDERS = {
   "doubao-web": {
     id: "doubao-web",
     alias: "db",
-    name: "Dola Web (ByteDance)",
+    name: "Doubao Web (ByteDance)",
     icon: "auto_awesome",
     color: "#3B82F6",
-    textIcon: "DA",
-    website: "https://www.dola.com",
-    authHint:
-      "Paste the full Cookie header from www.dola.com. It should include sessionid, ttwid, and s_v_web_id. If s_v_web_id is unavailable, fp=verify_... from a chat/completion request URL can be used as a fallback.",
+    textIcon: "DW",
+    website: "https://www.doubao.com",
+    authHint: "Paste your session cookie from doubao.com (DevTools → Application → Cookies)",
     subscriptionRisk: true,
     riskNoticeVariant: "webCookie",
   },
@@ -315,50 +299,8 @@ export const WEB_COOKIE_PROVIDERS = {
     website: "https://zenmux.ai",
     hasFree: true,
     freeNote:
-      "Free tier (5 Flows/5h, 38.64 Flows/week) — DeepSeek V3.2, GLM 4.7 Flash Free and more. No subscription required.",
+      "Free tier (5 Flows/5h, 38.64 Flows/week) — DeepSeek V3.2, GLM 4.7 Flash Free, MiMo V2 Flash Free and more. No subscription required.",
     authHint:
       "Login at zenmux.ai, then export all cookies using EditThisCookie or Cookie-Editor and paste the full Cookie header string here. Refresh every ~30 days.",
   },
 };
-
-/** Resolved public site for a web-session provider (href + display host). */
-export interface WebProviderHostLink {
-  /** Full URL to open in a new tab (the provider's own `website`, or the origin
-   * derived from a registry baseUrl fallback). */
-  url: string;
-  /** Display host, e.g. `chatgpt.com` — used for the "Open ‹host› →" label. */
-  host: string;
-}
-
-/**
- * Resolve the public website + display host for a web-session provider so the
- * "Add session cookie" modal can render a prominent "Open ‹host› →" link.
- *
- * Primary source: `WEB_COOKIE_PROVIDERS[providerId].website`. When an entry has
- * no `website` (or the provider is not in the catalog but the caller knows it is
- * a web-session provider), the caller may pass its registry `baseUrl` as a
- * fallback — only the origin is kept from it.
- *
- * Pure and React-free (unit-testable). Web-ness gating is the caller's
- * responsibility: with no `fallbackBaseUrl`, a provider absent from
- * `WEB_COOKIE_PROVIDERS` resolves to `null`.
- */
-export function resolveWebProviderHost(
-  providerId: string | null | undefined,
-  fallbackBaseUrl?: string | null
-): WebProviderHostLink | null {
-  if (!providerId) return null;
-  const entry = (WEB_COOKIE_PROVIDERS as Record<string, { website?: string }>)[providerId];
-  const website = entry?.website?.trim();
-  const fallback = fallbackBaseUrl?.trim();
-  const source = website || fallback;
-  if (!source) return null;
-  try {
-    const parsed = new URL(source);
-    // Keep the website URL verbatim (it may point at a specific path like
-    // `/chat`); for a registry baseUrl fallback, keep only the origin.
-    return { url: website ? source : parsed.origin, host: parsed.host };
-  } catch {
-    return null;
-  }
-}

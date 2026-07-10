@@ -239,12 +239,7 @@ function assembleFileContent(fm: { name: string; description: string }, body: st
 export async function generateAgentSkills(opts: GeneratorOptions): Promise<GeneratorReport> {
   const { dryRun = true, prune = false, outputDir = "skills", onlyIds } = opts;
 
-  // Anchor the base path with a literal so Turbopack's static analyzer can resolve
-  // it without falling back to tracing the entire project root. (#6329)
-  // Honor an absolute outputDir (e.g. a tmp dir in tests) — path.join(cwd, "/abs")
-  // would mangle it into cwd/abs, so guard with isAbsolute while keeping the
-  // Turbopack-friendly join form for the common relative case ("skills"). (#6366 regression)
-  const outputBase = path.isAbsolute(outputDir) ? outputDir : path.join(process.cwd(), outputDir);
+  const outputBase = path.resolve(process.cwd(), outputDir);
 
   const catalog = getCatalog();
   const catalogIds = new Set(catalog.map((s) => s.id));

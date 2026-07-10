@@ -234,19 +234,7 @@ export const FEATURE_FLAG_DEFINITIONS: FeatureFlagDefinition[] = [
     warningLevel: "info",
   },
 
-  // ──────────────── Runtime (13) ────────────────
-  {
-    key: "RESPONSES_PASSTHROUGH_DROP_COMMENTARY",
-    label: "Drop Responses Commentary",
-    description:
-      "Drop internal commentary-phase output items from Responses API passthrough streams before forwarding to clients. Disable to receive raw upstream commentary.",
-    descriptionI18nKey: "featureFlagResponsesPassthroughDropCommentaryDescription",
-    category: "runtime",
-    defaultValue: "true",
-    type: "boolean",
-    requiresRestart: false,
-    warningLevel: "info",
-  },
+  // ──────────────── Runtime (12) ────────────────
   {
     key: "OMNIROUTE_MCP_ENFORCE_SCOPES",
     label: "MCP Enforce Scopes",

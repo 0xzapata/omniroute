@@ -26,7 +26,10 @@
  * session; the upstream returns the same response either way.
  */
 import { BaseExecutor, type ExecuteInput } from "./base.ts";
-import { makeExecutorErrorResult as makeErrorResult, sanitizeErrorMessage } from "../utils/error.ts";
+import {
+  makeExecutorErrorResult as makeErrorResult,
+  sanitizeErrorMessage,
+} from "../utils/error.ts";
 import { extractKimiJwt } from "@/lib/providers/webCookieAuth";
 
 export { extractKimiJwt };
@@ -36,24 +39,7 @@ const CHAT_URL = `${BASE_URL}/apiv2/kimi.gateway.chat.v1.ChatService/Chat`;
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36";
 
-/**
- * Map a Kimi model id (the `key` field from `GetAvailableModels`) to the
- * request shape the upstream expects. Today only the chat-tier `k2d6` family
- * is supported — the agent variants (`k2d6-agent`, `k2d6-agent-ultra`) need
- * a different scenario (`SCENARIO_OK_COMPUTER`) plus `kimiPlusId` /
- * `agentMode` fields that this executor does not shape; users who need
- * agentic Kimi should use the `kimi-coding` (api.kimi.com) provider.
- */
-export interface KimiModelConfig {
-  scenario: string;
-  thinking: boolean;
-}
-
-export function resolveModelConfig(modelId: string): KimiModelConfig {
-  if (modelId === "k2d6-thinking") return { scenario: "SCENARIO_K2D5", thinking: true };
-  // `k2d6` (Instant) and any unknown id fall back to the default chat scenario.
-  return { scenario: "SCENARIO_K2D5", thinking: false };
-}
+const DEFAULT_SCENARIO = "SCENARIO_K2D5";
 
 /** Wrap a JSON message in the 5-byte Connect streaming envelope (flags + length). */
 export function frameConnectMessage(json: string): Uint8Array {
@@ -93,7 +79,10 @@ const MAX_FRAME_LEN = 8 * 1024 * 1024;
  *     (caller must treat this as a stream-fatal protocol error)
  *   - `consumed: N` + the parsed frame otherwise
  */
-export function decodeConnectFrame(buf: Uint8Array, byteOffset: number): { consumed: number; frame: ConnectFrame | null } {
+export function decodeConnectFrame(
+  buf: Uint8Array,
+  byteOffset: number
+): { consumed: number; frame: ConnectFrame | null } {
   if (byteOffset + 5 > buf.length) return { consumed: 0, frame: null };
   const flags = buf[byteOffset];
   const len =
@@ -130,7 +119,9 @@ type DeltaKind = "text" | "think" | null;
  * Anything else (heartbeats, chat/message metadata, stage transitions) is
  * suppressed; we only surface text to the client.
  */
-export function extractDelta(msg: Record<string, unknown> | null): { kind: DeltaKind; text: string } | null {
+export function extractDelta(
+  msg: Record<string, unknown> | null
+): { kind: DeltaKind; text: string } | null {
   if (!msg) return null;
   const op = String(msg.op ?? "");
   const mask = String(msg.mask ?? "");
@@ -167,7 +158,11 @@ export function isEndOfStream(msg: Record<string, unknown> | null): boolean {
   if (!msg) return false;
   // Assistant message flipped to COMPLETED.
   const message = (msg.message ?? null) as Record<string, unknown> | null;
-  if (message && String(message.status ?? "") === "MESSAGE_STATUS_COMPLETED" && String(message.role ?? "") === "assistant") {
+  if (
+    message &&
+    String(message.status ?? "") === "MESSAGE_STATUS_COMPLETED" &&
+    String(message.role ?? "") === "assistant"
+  ) {
     return true;
   }
   return false;
@@ -223,14 +218,14 @@ export class KimiWebExecutor extends BaseExecutor {
     return headers;
   }
 
-  private buildRequestBody(prompt: string, wantThinking: boolean, scenario: string): string {
+  private buildRequestBody(prompt: string, wantThinking: boolean): string {
     return JSON.stringify({
-      scenario,
+      scenario: DEFAULT_SCENARIO,
       tools: [{ type: "TOOL_TYPE_SEARCH", search: {} }, { type: "TOOL_TYPE_CRON_JOB" }],
       message: {
         role: "user",
         blocks: [{ message_id: "", text: { content: prompt } }],
-        scenario,
+        scenario: DEFAULT_SCENARIO,
       },
       options: { thinking: wantThinking, enable_plugin: true },
     });
@@ -253,13 +248,14 @@ export class KimiWebExecutor extends BaseExecutor {
 
     const messages = (bodyObj.messages as Array<{ role: string; content: unknown }>) || [];
     const modelId = (bodyObj.model as string) || "kimi-default";
-    // Resolve scenario + default thinking flag from the model id (catalog truth),
-    // then honour an explicit `reasoning_effort: "none"` override from the caller.
-    const modelConfig = resolveModelConfig(modelId);
-    const wantThinking = bodyObj.reasoning_effort === "none" ? false : modelConfig.thinking;
+    // Decide thinking intent. A user sending `reasoning_effort: "none"` is
+    // explicit — honour it even when the model id suggests a thinking variant.
+    // Otherwise thinking models (kimi-k2.6 etc.) default to thinking on.
+    const modelWantsThinking = /k2\.6|k2-6|think/i.test(modelId);
+    const wantThinking = bodyObj.reasoning_effort === "none" ? false : modelWantsThinking;
 
     const prompt = foldMessages(messages);
-    const reqBody = this.buildRequestBody(prompt, wantThinking, modelConfig.scenario);
+    const reqBody = this.buildRequestBody(prompt, wantThinking);
     const reqHeaders = this.buildKimiHeaders(jwt);
 
     // Connect framing wraps the JSON body in a 5-byte envelope. Without it the
@@ -285,7 +281,12 @@ export class KimiWebExecutor extends BaseExecutor {
 
     if (!upstream.ok) {
       const errText = await upstream.text().catch(() => "");
-      return makeErrorResult(upstream.status, `Kimi error: ${sanitizeErrorMessage(errText)}`, body, CHAT_URL);
+      return makeErrorResult(
+        upstream.status,
+        `Kimi error: ${sanitizeErrorMessage(errText)}`,
+        body,
+        CHAT_URL
+      );
     }
 
     const encoder = new TextEncoder();

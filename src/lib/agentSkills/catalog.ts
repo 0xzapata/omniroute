@@ -40,7 +40,6 @@ export const API_SKILL_IDS: readonly string[] = [
   "omni-agents-a2a",
   "omni-version-manager",
   "omni-inference",
-  "omni-github-skills",
 ] as const;
 
 /** Config skill IDs. */
@@ -148,7 +147,7 @@ export function computeCoverage(): SkillCoverage {
   const configHave = catalog.filter((s) => s.category === "config" && presentIds.has(s.id)).length;
 
   return {
-    api: { have: apiHave, total: 23 },
+    api: { have: apiHave, total: 22 },
     cli: { have: cliHave, total: 20 },
     config: { have: configHave, total: configTotal },
     totalSkills: apiHave + cliHave + configHave,

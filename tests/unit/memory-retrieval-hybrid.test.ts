@@ -24,34 +24,19 @@ process.env.VECTOR_STORE_DISABLE_VEC = "true"; // force vec → null
 
 const core = await import("../../src/lib/db/core.ts");
 
-async function removeTestDataDir() {
-  for (let attempt = 0; attempt < 10; attempt++) {
-    try {
-      if (fs.existsSync(TEST_DATA_DIR)) {
-        fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true });
-      }
-      return;
-    } catch (error: unknown) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if ((code === "ENOTEMPTY" || code === "EBUSY" || code === "EPERM") && attempt < 9) {
-        await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
-        continue;
-      }
-      throw error;
-    }
-  }
-}
-
-async function cleanup() {
+function cleanup() {
   core.resetDbInstance();
-  await removeTestDataDir();
+  if (fs.existsSync(TEST_DATA_DIR)) {
+    fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true });
+  }
   fs.mkdirSync(TEST_DATA_DIR, { recursive: true });
 }
 
-test.afterEach(async () => cleanup());
-test.after(async () => {
-  core.resetDbInstance();
-  await removeTestDataDir();
+test.afterEach(() => cleanup());
+test.after(() => {
+  if (fs.existsSync(TEST_DATA_DIR)) {
+    fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true });
+  }
 });
 
 function insertMemory(

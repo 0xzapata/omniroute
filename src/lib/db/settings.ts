@@ -96,7 +96,6 @@ export async function getSettings() {
     tailscaleEnabled: false,
     tailscaleUrl: "",
     stickyRoundRobinLimit: 3,
-    disableSessionStickiness: false,
     requestRetry: 3,
     maxRetryIntervalSec: 30,
     antigravitySignatureCacheMode: "enabled",
@@ -114,11 +113,6 @@ export async function getSettings() {
     preferClaudeCodeForUnprefixedClaudeModels: isTruthyEnvFlag(
       process.env.OMNIROUTE_PREFER_CLAUDE_CODE_FOR_UNPREFIXED_CLAUDE_MODELS
     ),
-    // Opt-in (default "off"): short-circuits Claude Code's `--permission-mode auto`
-    // internal security-classifier request with a synthetic `<block>no</block>` ALLOW
-    // response, without calling the upstream provider. See
-    // open-sse/handlers/chatCore/claudeClassifierCompat.ts for the detector + builder.
-    claudeClassifierCompat: "off",
     autoRefreshProviderQuota: false,
     autoRefreshProviderQuotaInterval: 180,
     comboConfigMode: "guided",
@@ -151,22 +145,13 @@ export async function getSettings() {
     perKeyProxyEnabled: false,
     customSystemPromptEnabled: false,
     customSystemPrompt: "",
-    // #6316: Opt-in filter that hides paid-only models from the /v1/models catalog.
-    // Uses isFreeModel() from src/shared/utils/freeModels.ts to detect free entries
-    // (`:free` suffix, zero-price pricing, or FREE_MODEL_BUDGETS membership). Default
-    // false preserves prior behaviour; opt-in only.
-    hidePaidModels: false,
   };
   for (const row of rows) {
     const record = toRecord(row);
     const key = typeof record.key === "string" ? record.key : null;
     const rawValue = typeof record.value === "string" ? record.value : null;
     if (!key || rawValue === null) continue;
-    try {
-      settings[key] = JSON.parse(rawValue);
-    } catch {
-      settings[key] = rawValue;
-    }
+    settings[key] = JSON.parse(rawValue);
   }
 
   // Auto-complete onboarding for pre-configured deployments (Docker/VM)

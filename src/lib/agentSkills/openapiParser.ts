@@ -118,6 +118,7 @@ function resolveArea(urlPath: string): SkillArea | null {
   return null;
 }
 
+ 
 function extractOperations(pathsObj: Record<string, any>): OpenapiPath[] {
   const ops: OpenapiPath[] = [];
 

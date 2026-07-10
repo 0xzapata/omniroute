@@ -15,11 +15,7 @@ import { useState } from "react";
 import { Button } from "@/shared/components";
 import { matchesModelCatalogQuery } from "@/shared/utils/modelCatalogSearch";
 import { isFreeModel, sortModelsFreeFirst } from "@/shared/utils/freeModels";
-import {
-  getDisplayModelAlias,
-  providerText,
-  type ProviderMessageTranslator,
-} from "../providerPageHelpers";
+import { providerText, type ProviderMessageTranslator } from "../providerPageHelpers";
 import ModelRow, { ModelVisibilityToolbar } from "./ModelRow";
 import PassthroughModelsSection from "./PassthroughModelsSection";
 import CompatibleModelsSection from "./CompatibleModelsSection";
@@ -372,9 +368,7 @@ export default function ProviderModelsSection({
     (acc, [alias, fullModel]) => {
       const prefix = `${providerDisplayAlias}/`;
       if (fullModel.startsWith(prefix)) {
-        const modelId = fullModel.slice(prefix.length);
-        const displayAlias = getDisplayModelAlias(modelId, alias);
-        if (displayAlias) acc[modelId] = displayAlias;
+        acc[fullModel.slice(prefix.length)] = alias;
       }
       return acc;
     },

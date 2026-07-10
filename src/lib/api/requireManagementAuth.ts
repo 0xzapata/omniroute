@@ -21,25 +21,8 @@ export function hasManageScope(scopes: string[] = []): boolean {
   return hasManageScopeShared(scopes);
 }
 
-interface RequireManagementAuthOptions {
-  alwaysRequireAuth?: boolean;
-  invalidApiKeyStatus?: 401 | 403;
-}
-
-function invalidManagementTokenResponse(options: RequireManagementAuthOptions): Response {
-  const status = options.invalidApiKeyStatus ?? 403;
-  return createErrorResponse({
-    status,
-    message: status === 401 ? "Invalid API key" : "Invalid management token",
-    type: "invalid_request",
-  });
-}
-
-export async function requireManagementAuth(
-  request: Request,
-  options: RequireManagementAuthOptions = {}
-): Promise<Response | null> {
-  if (!options.alwaysRequireAuth && !(await isAuthRequired(request))) {
+export async function requireManagementAuth(request: Request): Promise<Response | null> {
+  if (!(await isAuthRequired(request))) {
     return null;
   }
 
@@ -90,7 +73,11 @@ export async function requireManagementAuth(
     let meta: Awaited<ReturnType<typeof getApiKeyMetadata>>;
     try {
       if (!(await isValidApiKey(apiKey))) {
-        return invalidManagementTokenResponse(options);
+        return createErrorResponse({
+          status: 403,
+          message: "Invalid management token",
+          type: "invalid_request",
+        });
       }
       meta = await getApiKeyMetadata(apiKey);
     } catch {

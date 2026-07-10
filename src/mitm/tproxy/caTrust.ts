@@ -78,10 +78,6 @@ export async function installTproxyCa(
   sudoPassword = "",
   deps: Partial<CaTrustDeps> = {}
 ): Promise<void> {
-  if (process.env.OMNIROUTE_SKIP_SYSTEM_TRUST === "1" && deps.run === undefined) {
-    console.log("[tproxy-ca] OMNIROUTE_SKIP_SYSTEM_TRUST=1 — skipping OS trust-store mutation");
-    return;
-  }
   const d = { ...realDeps, ...deps };
   if (d.platform() !== "linux") {
     throw new Error("TPROXY CA trust install is Linux-only.");
@@ -107,10 +103,6 @@ export async function uninstallTproxyCa(
   sudoPassword = "",
   deps: Partial<CaTrustDeps> = {}
 ): Promise<void> {
-  if (process.env.OMNIROUTE_SKIP_SYSTEM_TRUST === "1" && deps.run === undefined) {
-    console.log("[tproxy-ca] OMNIROUTE_SKIP_SYSTEM_TRUST=1 — skipping OS trust-store mutation");
-    return;
-  }
   const d = { ...realDeps, ...deps };
   if (d.platform() !== "linux") return;
   const cfg = d.certConfig();

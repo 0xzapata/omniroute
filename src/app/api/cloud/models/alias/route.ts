@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { validateApiKey, getModelAliases, setModelAlias, isCloudEnabled } from "@/models";
-import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import { getConsistentMachineId } from "@/shared/utils/machineId";
 import { syncToCloud } from "@/lib/cloudSync";
 import { cloudModelAliasUpdateSchema } from "@/shared/validation/schemas";
@@ -8,12 +7,6 @@ import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
 
 // PUT /api/cloud/models/alias - Set model alias (for cloud/CLI)
 export async function PUT(request: Request) {
-  const authError = await requireManagementAuth(request, {
-    alwaysRequireAuth: true,
-    invalidApiKeyStatus: 401,
-  });
-  if (authError) return authError;
-
   let rawBody;
   try {
     rawBody = await request.json();
@@ -25,6 +18,18 @@ export async function PUT(request: Request) {
   }
 
   try {
+    const authHeader = request.headers.get("authorization");
+    const apiKey = authHeader?.replace("Bearer ", "");
+
+    if (!apiKey) {
+      return NextResponse.json({ error: "Missing API key" }, { status: 401 });
+    }
+
+    const isValid = await validateApiKey(apiKey);
+    if (!isValid) {
+      return NextResponse.json({ error: "Invalid API key" }, { status: 401 });
+    }
+
     const validation = validateBody(cloudModelAliasUpdateSchema, rawBody);
     if (isValidationFailure(validation)) {
       return NextResponse.json({ error: validation.error }, { status: 400 });

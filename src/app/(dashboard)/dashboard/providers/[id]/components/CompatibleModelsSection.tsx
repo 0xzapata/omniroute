@@ -15,12 +15,7 @@ import {
 } from "@/shared/utils/modelCatalogSearch";
 import { resolveManagedModelAlias } from "@/shared/utils/providerModelAliases";
 import { useNotificationStore } from "@/store/notificationStore";
-import {
-  buildCompatMap,
-  getDisplayModelAlias,
-  providerText,
-  type CompatModelRow,
-} from "../providerPageHelpers";
+import { buildCompatMap, providerText, type CompatModelRow } from "../providerPageHelpers";
 import { ModelVisibilityToolbar } from "./ModelRow";
 import { sortModelsFreeFirst, isFreeModel } from "@/shared/utils/freeModels";
 import PassthroughModelRow, { type PassthroughModelRowProps } from "./PassthroughModelRow";
@@ -153,8 +148,7 @@ export default function CompatibleModelsSection({
     for (const [alias, fullModel] of providerAliases) {
       const fmStr = fullModel as string;
       const modelId = fmStr.startsWith(prefix) ? fmStr.slice(prefix.length) : fmStr;
-      const displayAlias = getDisplayModelAlias(modelId, alias as string);
-      if (displayAlias) aliasByModelId.set(modelId, displayAlias);
+      aliasByModelId.set(modelId, alias as string);
     }
 
     const addModel = (model: CompatModelRow, source: string) => {
@@ -193,13 +187,11 @@ export default function CompatibleModelsSection({
       const fmStr = fullModel as string;
       const modelId = fmStr.startsWith(prefix) ? fmStr.slice(prefix.length) : fmStr;
       if (!modelId || seenModelIds.has(modelId)) continue;
-      const displayAlias = getDisplayModelAlias(modelId, alias as string);
-      if (!displayAlias) continue;
       const customModel = customModelMap.get(modelId);
       rows.push({
         modelId,
-        alias: displayAlias,
-        displayName: displayAlias,
+        alias: alias as string,
+        displayName: alias as string,
         source: customModel ? customModel.source || "custom" : "alias",
         isFree:
           modelId.endsWith(":free") ||

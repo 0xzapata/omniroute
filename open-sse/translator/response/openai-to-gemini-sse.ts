@@ -37,18 +37,10 @@ export const OPENAI_TO_GEMINI_FINISH_REASON: Record<string, string> = {
   content_filter: "SAFETY",
 };
 
-interface OpenAIToolCallDelta {
-  index?: number;
-  id?: string;
-  type?: string;
-  function?: { name?: string; arguments?: string };
-}
-
 interface OpenAIChoiceDelta {
   content?: string | null;
   reasoning_content?: string | null;
   role?: string;
-  tool_calls?: OpenAIToolCallDelta[];
 }
 
 interface OpenAIChoice {
@@ -71,31 +63,9 @@ interface OpenAIStreamChunk {
   model?: string;
 }
 
-interface GeminiFunctionCall {
-  name: string;
-  args: Record<string, unknown>;
-}
-
-interface GeminiFunctionResponse {
-  name: string;
-  response: Record<string, unknown>;
-}
-
 interface GeminiPart {
-  text?: string;
+  text: string;
   thought?: boolean;
-  functionCall?: GeminiFunctionCall;
-  functionResponse?: GeminiFunctionResponse;
-}
-
-/**
- * Per-stream mutable accumulator for OpenAI streamed tool calls. OpenAI emits
- * a tool call's `arguments` as partial JSON fragments across several delta
- * chunks, keyed by `index`; we buffer them here and flush a complete
- * `functionCall` part once `finish_reason` arrives.
- */
-export interface GeminiToolCallState {
-  toolCallAccum?: Record<number, { id: string; name: string; arguments: string }>;
 }
 
 interface GeminiCandidate {
@@ -127,8 +97,7 @@ interface GeminiStreamChunk {
  */
 export function openAIChunkToGeminiChunk(
   parsed: OpenAIStreamChunk,
-  fallbackModel: string,
-  state?: GeminiToolCallState
+  fallbackModel: string
 ): GeminiStreamChunk | null {
   const choice = parsed.choices?.[0];
   if (!choice) return null;
@@ -141,35 +110,6 @@ export function openAIChunkToGeminiChunk(
   }
   if (delta.content) {
     parts.push({ text: String(delta.content) });
-  }
-
-  // Accumulate streamed tool-call fragments (OpenAI streams partial JSON
-  // `arguments` across chunks, keyed by index). Requires a caller-supplied
-  // per-stream `state`; nothing is emitted until finish_reason arrives.
-  if (state && Array.isArray(delta.tool_calls)) {
-    const accum = (state.toolCallAccum ??= {});
-    for (const tc of delta.tool_calls) {
-      const idx = tc.index ?? 0;
-      const entry = (accum[idx] ??= { id: "", name: "", arguments: "" });
-      if (tc.id) entry.id = tc.id;
-      if (tc.function?.name) entry.name += tc.function.name;
-      if (tc.function?.arguments) entry.arguments += tc.function.arguments;
-    }
-  }
-
-  // On finish, flush accumulated tool calls as complete functionCall parts.
-  if (choice.finish_reason && state?.toolCallAccum) {
-    for (const key of Object.keys(state.toolCallAccum)) {
-      const entry = state.toolCallAccum[Number(key)];
-      if (!entry.name) continue;
-      let args: Record<string, unknown> = {};
-      try {
-        args = JSON.parse(entry.arguments || "{}") as Record<string, unknown>;
-      } catch {
-        args = {};
-      }
-      parts.push({ functionCall: { name: entry.name, args } });
-    }
   }
 
   // Skip pure role-only deltas with no content and no finish signal.
@@ -228,9 +168,6 @@ export function transformOpenAISSEToGeminiSSE(upstreamResponse: Response, model:
   // chunk so we never JSON.parse a half-event.
   let buffer = "";
 
-  // Per-stream tool-call accumulator (shared across transform + flush).
-  const toolCallState: GeminiToolCallState = {};
-
   const transform = new TransformStream<Uint8Array, Uint8Array>({
     transform(chunk, controller) {
       buffer += decoder.decode(chunk, { stream: true });
@@ -255,7 +192,7 @@ export function transformOpenAISSEToGeminiSSE(upstreamResponse: Response, model:
           continue;
         }
 
-        const geminiChunk = openAIChunkToGeminiChunk(parsed, model, toolCallState);
+        const geminiChunk = openAIChunkToGeminiChunk(parsed, model);
         if (!geminiChunk) continue;
 
         controller.enqueue(encoder.encode("data: " + JSON.stringify(geminiChunk) + "\r\n\r\n"));
@@ -275,7 +212,7 @@ export function transformOpenAISSEToGeminiSSE(upstreamResponse: Response, model:
       } catch {
         return;
       }
-      const geminiChunk = openAIChunkToGeminiChunk(parsed, model, toolCallState);
+      const geminiChunk = openAIChunkToGeminiChunk(parsed, model);
       if (!geminiChunk) return;
       controller.enqueue(encoder.encode("data: " + JSON.stringify(geminiChunk) + "\r\n\r\n"));
     },
@@ -291,17 +228,10 @@ export function transformOpenAISSEToGeminiSSE(upstreamResponse: Response, model:
   });
 }
 
-interface OpenAIToolCall {
-  id?: string;
-  type?: string;
-  function?: { name?: string; arguments?: string };
-}
-
 interface OpenAIMessage {
   content?: string | null;
   reasoning_content?: string | null;
   role?: string;
-  tool_calls?: OpenAIToolCall[];
 }
 
 interface OpenAINonStreamChoice {
@@ -381,22 +311,7 @@ export async function convertOpenAIResponseToGemini(
   if (message.reasoning_content) {
     parts.push({ text: String(message.reasoning_content), thought: true });
   }
-  // Text content — only emit a text part when there is actual text, so a
-  // pure tool-call response isn't padded with an empty-string part.
-  const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
-  if (message.content || toolCalls.length === 0) {
-    parts.push({ text: String(message.content ?? "") });
-  }
-  // Tool calls → functionCall parts (arguments JSON string → object).
-  for (const tc of toolCalls) {
-    let args: Record<string, unknown> = {};
-    try {
-      args = JSON.parse(tc.function?.arguments || "{}") as Record<string, unknown>;
-    } catch {
-      args = {};
-    }
-    parts.push({ functionCall: { name: tc.function?.name || "", args } });
-  }
+  parts.push({ text: String(message.content ?? "") });
 
   const finishReason = OPENAI_TO_GEMINI_FINISH_REASON[finish_reason ?? "stop"] ?? "STOP";
 

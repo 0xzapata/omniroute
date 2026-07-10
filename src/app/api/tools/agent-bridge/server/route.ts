@@ -6,7 +6,13 @@
  * Body: AgentBridgeServerActionSchema
  */
 import { AgentBridgeServerActionSchema } from "@/shared/schemas/agentBridge";
-import { getCachedPassword, setCachedPassword } from "@/mitm/manager";
+import {
+  startMitm,
+  stopMitm,
+  getMitmStatus,
+  setCachedPassword,
+  getCachedPassword,
+} from "@/mitm/manager";
 import { installCertResult, checkCertInstalled } from "@/mitm/cert/install";
 import { generateCert } from "@/mitm/cert/generate";
 import { resolveMitmDataDir } from "@/mitm/dataDir";
@@ -40,27 +46,23 @@ export async function POST(request: Request): Promise<Response> {
   try {
     if (action === "start") {
       if (sudoPassword) setCachedPassword(sudoPassword);
-      const { startMitm } = await import("@/mitm/manager.runtime");
       const result = await startMitm(apiKey, sudoPassword);
       return Response.json({ ok: true, ...result });
     }
 
     if (action === "stop") {
       const pwd = sudoPassword || getCachedPassword() || "";
-      const { stopMitm } = await import("@/mitm/manager.runtime");
       const result = await stopMitm(pwd);
       return Response.json({ ok: true, ...result });
     }
 
     if (action === "restart") {
       const pwd = sudoPassword || getCachedPassword() || "";
-      const { startMitm, stopMitm, getMitmStatus } = await import("@/mitm/manager.runtime");
       const status = await getMitmStatus();
       if (status.running) {
         await stopMitm(pwd);
       }
-      // stopMitm calls clearCachedPassword() internally, so re-cache after stop
-      if (sudoPassword || pwd) setCachedPassword(sudoPassword || pwd);
+      if (sudoPassword) setCachedPassword(sudoPassword);
       const result = await startMitm(apiKey, sudoPassword || pwd);
       return Response.json({ ok: true, ...result });
     }

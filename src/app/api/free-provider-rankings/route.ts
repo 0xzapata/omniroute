@@ -3,12 +3,6 @@ import { z } from "zod";
 import { CORS_HEADERS, handleCorsOptions } from "@/shared/utils/cors";
 import { computeFreeProviderRankings } from "@/lib/freeProviderRankings";
 
-// Coerce common truthy query-string forms ("1", "true", "yes") to a boolean.
-const boolParam = z
-  .string()
-  .optional()
-  .transform((val) => val === "1" || val === "true" || val === "yes");
-
 const QuerySchema = z.object({
   category: z.string().min(1).max(50).optional(),
   limit: z
@@ -19,9 +13,6 @@ const QuerySchema = z.object({
       const n = Number(val);
       return Number.isFinite(n) && n >= 1 ? Math.min(Math.round(n), 100) : 50;
     }),
-  // Additive filters (default off → current behavior). `availableOnly` implies configured.
-  configuredOnly: boolParam,
-  availableOnly: boolParam,
 });
 
 export async function OPTIONS() {
@@ -33,8 +24,6 @@ export async function GET(request: NextRequest) {
   const parsed = QuerySchema.safeParse({
     category: url.searchParams.get("category") || undefined,
     limit: url.searchParams.get("limit") || undefined,
-    configuredOnly: url.searchParams.get("configuredOnly") || undefined,
-    availableOnly: url.searchParams.get("availableOnly") || undefined,
   });
 
   if (!parsed.success) {
@@ -44,11 +33,8 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const { category, limit, configuredOnly, availableOnly } = parsed.data;
-  const rankings = await computeFreeProviderRankings(category, limit, {
-    configuredOnly,
-    availableOnly,
-  });
+  const { category, limit } = parsed.data;
+  const rankings = computeFreeProviderRankings(category, limit);
 
   return NextResponse.json({ rankings }, { headers: CORS_HEADERS });
 }

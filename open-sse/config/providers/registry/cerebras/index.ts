@@ -10,7 +10,6 @@ export const cerebrasProvider: RegistryEntry = {
   authHeader: "bearer",
   models: [
     { id: "zai-glm-4.7", name: "GLM 4.7" },
-    { id: "gemma-4-31b", name: "Gemma 4 31B" },
     { id: "gpt-oss-120b", name: "GPT OSS 120B" },
   ],
 };

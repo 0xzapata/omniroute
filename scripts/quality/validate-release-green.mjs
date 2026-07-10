@@ -33,40 +33,20 @@
 // orchestration lives in the /green-prs + review-prs flows that call it.
 //
 // Usage:
-//   node scripts/quality/validate-release-green.mjs [--json] [--with-build] [--quick] [--hermetic]
+//   node scripts/quality/validate-release-green.mjs [--json] [--with-build] [--quick]
 //     --json        emit machine-readable JSON to stdout (report goes to stderr)
 //     --with-build  also run check:pack-artifact (needs a dist/ build — slow)
 //     --quick       skip the slow unit + vitest + integration suites (drift + fast
 //                   gates only)
-//     --hermetic    scrub OMNIROUTE_API_KEY/OMNIROUTE_URL from gate env so live
-//                   tests self-skip exactly like CI (dev machines otherwise run
-//                   them against localhost and produce false-positive reds)
-//
-// Per-gate output is saved to _artifacts/release-green/<gate>.log (gitignored) —
-// diagnose a red from the file instead of re-running the gate.
 
-import { execFile, execFileSync } from "node:child_process";
-import { promisify } from "node:util";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..", "..");
 const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
-
-// Per-gate captured output. execFileSync buffers everything and the report only
-// shows a one-line summary, so without these files every red requires RE-RUNNING
-// the gate just to see the detail (the dominant cost of the 2026-07-05 pre-flight).
-const LOG_DIR = join(ROOT, "_artifacts", "release-green");
-function saveGateLog(id, out) {
-  try {
-    mkdirSync(LOG_DIR, { recursive: true });
-    writeFileSync(join(LOG_DIR, `${id}.log`), String(out ?? ""));
-  } catch {
-    /* log persistence is best-effort — never fails a gate */
-  }
-}
 
 // ─── Pure helpers (exported for tests) ──────────────────────────────────────
 
@@ -161,17 +141,6 @@ export function classifyRunError(err, timeoutMs) {
   };
 }
 
-// --hermetic: scrub the live-test trigger vars so the pre-flight behaves like CI
-// (a dev machine with OMNIROUTE_API_KEY set runs 17+ live tests that CI skips —
-// every one a false-positive red against the release branch).
-const HERMETIC_SCRUB = ["OMNIROUTE_API_KEY", "OMNIROUTE_URL"];
-let hermetic = false;
-function buildGateEnv(extra) {
-  const env = { ...process.env, FORCE_COLOR: "0", ...(extra || {}) };
-  if (hermetic) for (const k of HERMETIC_SCRUB) delete env[k];
-  return env;
-}
-
 function run(cmd, cmdArgs, opts = {}) {
   try {
     const out = execFileSync(cmd, cmdArgs, {
@@ -179,7 +148,7 @@ function run(cmd, cmdArgs, opts = {}) {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
       maxBuffer: 256 * 1024 * 1024,
-      env: buildGateEnv(opts.env),
+      env: { ...process.env, FORCE_COLOR: "0" },
       // A hard ceiling for the long, silent test suites (execFileSync buffers all output until
       // exit, so they show no progress while running). undefined = no timeout for fast gates.
       ...(opts.timeout ? { timeout: opts.timeout } : {}),
@@ -190,34 +159,11 @@ function run(cmd, cmdArgs, opts = {}) {
   }
 }
 
-const execFileAsync = promisify(execFile);
-
-// Async twin of run() — same {code, out} contract, so the slow suites (unit /
-// vitest / integration / pack-artifact) can run CONCURRENTLY instead of in
-// series. Sequentially they dominate the pre-flight wall time (~2h in the
-// v3.8.45 run); they are independent processes with per-process DATA_DIR
-// isolation, so overlapping them cuts the pre-flight to ~the slowest single one.
-async function runAsync(cmd, cmdArgs, opts = {}) {
-  try {
-    const { stdout, stderr } = await execFileAsync(cmd, cmdArgs, {
-      cwd: ROOT,
-      encoding: "utf8",
-      maxBuffer: 256 * 1024 * 1024,
-      env: buildGateEnv(opts.env),
-      ...(opts.timeout ? { timeout: opts.timeout } : {}),
-    });
-    return { code: 0, out: `${stdout || ""}${stderr || ""}` };
-  } catch (err) {
-    return classifyRunError(err, opts.timeout);
-  }
-}
-
-async function main() {
+function main() {
   const args = new Set(process.argv.slice(2));
   const JSON_OUT = args.has("--json");
   const WITH_BUILD = args.has("--with-build");
   const QUICK = args.has("--quick");
-  hermetic = args.has("--hermetic");
 
   const results = [];
   const record = (r) => {
@@ -234,7 +180,6 @@ async function main() {
   const hardCmd = (id, label, cmd, cmdArgs, opts) => {
     announce(label);
     const { code, out } = run(cmd, cmdArgs, opts);
-    saveGateLog(id, out);
     record({
       id,
       label,
@@ -252,7 +197,6 @@ async function main() {
   const driftCmd = (id, label, cmd, cmdArgs, okDetail = "within baseline", opts) => {
     announce(label);
     const { code, out } = run(cmd, cmdArgs, opts);
-    saveGateLog(id, out);
     record({
       id,
       label,
@@ -268,24 +212,8 @@ async function main() {
 
   // ESLint: ONE pass → errors (hard) + warnings (drift)
   {
-    announce("ESLint (errors + warnings — ~5-15min)");
-    // Suppressions-aware, matching `npm run lint` (Pacote 4 no-new-warnings): the frozen
-    // pre-existing debt in config/quality/eslint-suppressions.json must not count as
-    // errors here — only NET-NEW violations are release reds. Timeout raised: a full
-    // repo pass takes ~14min alone and this pre-flight often runs alongside test suites.
-    const { out } = run(
-      "npx",
-      [
-        "eslint",
-        ".",
-        "--format",
-        "json",
-        "--suppressions-location",
-        "config/quality/eslint-suppressions.json",
-      ],
-      { timeout: 30 * 60 * 1000 }
-    );
-    saveGateLog("lint", out);
+    announce("ESLint (errors + warnings — ~3-6min)");
+    const { out } = run("npx", ["eslint", ".", "--format", "json"], { timeout: 15 * 60 * 1000 });
     const parsed = parseEslintJson(out);
     if (!parsed) {
       record({
@@ -326,7 +254,6 @@ async function main() {
   {
     announce("Cognitive complexity (ratchet)");
     const { out } = run(npmCmd, ["run", "check:cognitive-complexity"]);
-    saveGateLog("cognitive", out);
     const current = parseCognitiveCount(out);
     const base = baselineValue("cognitiveComplexity");
     const over = isDrift(current, base);
@@ -351,28 +278,6 @@ async function main() {
       kind: "drift",
       ok: code === 0,
       detail: code === 0 ? "within frozen caps" : firstFailureLine(out),
-    });
-  }
-
-  // test-masking (hard) — a PR-context gate: it only runs on the release PR (PR→main) in CI, so
-  // net-assert reductions accrue unseen on release/** and explode on the release PR. Reproduce it
-  // here against origin/main so a non-allowlisted reduction surfaces in the pre-flight, not in a
-  // ~40-min CI layer (v3.8.43 cost 3 such round-trips). Legitimate reductions get allowlisted in
-  // config/quality/test-masking-allowlist.json; tautology/skip/deletion signals are never allowlistable.
-  if (!QUICK) {
-    announce("Test-masking (weakened-assert guard vs main)");
-    // best-effort fetch so the merge-base diff is accurate; ignore fetch failure (offline pre-flight)
-    run("git", ["fetch", "--no-tags", "origin", "main", "--depth=200"], { timeout: 60 * 1000 });
-    const { code, out } = run(npmCmd, ["run", "check:test-masking"], {
-      env: { GITHUB_BASE_REF: "main" },
-    });
-    saveGateLog("test-masking", out);
-    record({
-      id: "test-masking",
-      label: "Test-masking (weakened-assert guard)",
-      kind: "hard",
-      ok: code === 0,
-      detail: code === 0 ? "no weakening" : firstFailureLine(out),
     });
   }
 
@@ -409,69 +314,35 @@ async function main() {
     // with 15 such reds). They run SILENTLY for many minutes; the announce line above + these
     // hard ceilings keep a long-but-healthy run from being mistaken for a hang (the ceiling also
     // converts a genuine DB-handle hang into a visible failure instead of an infinite block).
-    // The slow suites are INDEPENDENT processes (each self-isolates DATA_DIR) with
-    // no shared state, so they run CONCURRENTLY — the pre-flight wall time becomes
-    // ~the slowest single suite instead of their sum (unit ~25-35min + vitest
-    // ~3-8min + integration ~3-10min + pack-artifact ~15min was ~1h serial in the
-    // v3.8.45 run). pack-artifact (--with-build) joins the same wave. Integration
-    // runs ONLY on the release PR full CI, so a regression here is invisible until
-    // release — that is why it is a HARD pre-flight gate.
-    const slow = [
-      {
-        id: "unit",
-        label: "Unit tests (full suite, CI concurrency — runs ~20-35min silently)",
-        args: ["run", "test:unit:ci"],
-        timeout: 45 * 60 * 1000,
-      },
-      {
-        id: "vitest",
-        label: "Vitest (MCP / autoCombo / cache — ~3-8min)",
-        args: ["run", "test:vitest"],
-        timeout: 15 * 60 * 1000,
-      },
-      {
-        id: "integration",
-        label: "Integration tests (~3-10min)",
-        args: ["run", "test:integration"],
-        timeout: 20 * 60 * 1000,
-      },
-    ];
-    if (WITH_BUILD) {
-      slow.push({
-        id: "pack-artifact",
-        label: "Package artifact (npm pack policy)",
-        args: ["run", "check:pack-artifact"],
-        timeout: 20 * 60 * 1000,
-      });
-    }
-    slow.forEach((g) => announce(`${g.label} [parallel]`));
-    const slowResults = await Promise.all(
-      slow.map((g) => runAsync(npmCmd, g.args, { timeout: g.timeout }))
+    hardCmd(
+      "unit",
+      "Unit tests (full suite, CI concurrency — runs ~20-35min silently)",
+      npmCmd,
+      ["run", "test:unit:ci"],
+      { timeout: 45 * 60 * 1000 }
     );
-    slow.forEach((g, i) => {
-      const { code, out } = slowResults[i];
-      saveGateLog(g.id, out);
-      record({
-        id: g.id,
-        label: g.label,
-        kind: "hard",
-        ok: code === 0,
-        detail: code === 0 ? "pass" : firstFailureLine(out),
-      });
-    });
-  } else if (WITH_BUILD) {
-    // --with-build without the suites (--quick): still verify the package artifact.
-    const { code, out } = await runAsync(npmCmd, ["run", "check:pack-artifact"], {
+    hardCmd(
+      "vitest",
+      "Vitest (MCP / autoCombo / cache — ~3-8min)",
+      npmCmd,
+      ["run", "test:vitest"],
+      { timeout: 15 * 60 * 1000 }
+    );
+    // Integration tests run ONLY on the release PR full CI (PR→main), so an assertion
+    // regression here (e.g. a contributor flipping a Codex fingerprint key order) is
+    // invisible until release — run them in the pre-flight as a HARD gate.
+    hardCmd("integration", "Integration tests (~3-10min)", npmCmd, ["run", "test:integration"], {
       timeout: 20 * 60 * 1000,
     });
-    saveGateLog("pack-artifact", out);
-    record({
-      id: "pack-artifact",
-      label: "Package artifact (npm pack policy)",
-      kind: "hard",
-      ok: code === 0,
-      detail: code === 0 ? "pass" : firstFailureLine(out),
-    });
+  }
+  if (WITH_BUILD) {
+    hardCmd(
+      "pack-artifact",
+      "Package artifact (npm pack policy)",
+      npmCmd,
+      ["run", "check:pack-artifact"],
+      { timeout: 20 * 60 * 1000 }
+    );
   }
 
   const { releaseGreen, hardFailures, drift } = computeVerdict(results);

@@ -109,15 +109,6 @@ export async function POST(request: Request) {
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i];
     try {
-      // Per-entry copy so each connection gets its own providerSpecificData. Cloudflare
-      // Workers AI carries a per-key accountId (name|accountId|apiKey) that must NOT bleed
-      // across entries — never mutate/reuse the shared base object here.
-      const entryProviderSpecificData: Record<string, unknown> = {
-        ...(baseProviderSpecificData || {}),
-        ...(entry.accountId ? { accountId: entry.accountId } : {}),
-      };
-      const hasEntryPsd = Object.keys(entryProviderSpecificData).length > 0;
-
       let testStatus: "active" | "unknown" | "failed" = "unknown";
 
       if (validateKeys) {
@@ -125,7 +116,7 @@ export async function POST(request: Request) {
           validateProviderApiKey({
             provider,
             apiKey: entry.apiKey,
-            providerSpecificData: entryProviderSpecificData,
+            providerSpecificData: baseProviderSpecificData || {},
           })
         );
         testStatus = probe?.valid ? "active" : "failed";
@@ -139,7 +130,7 @@ export async function POST(request: Request) {
         priority: priority || 1,
         globalPriority: globalPriority || null,
         defaultModel: null,
-        providerSpecificData: hasEntryPsd ? entryProviderSpecificData : baseProviderSpecificData,
+        providerSpecificData: baseProviderSpecificData,
         isActive: true,
         testStatus,
       });

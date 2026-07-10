@@ -84,7 +84,6 @@ async function seedOpenAIConnection({
     errorCode: "refresh_failed",
     rateLimitedUntil,
     backoffLevel: 2,
-    proxyEnabled: false,
   });
 }
 
@@ -729,7 +728,6 @@ test("management proxies route covers auth, pagination, lookup, where-used, patc
 });
 
 test("embeddings route covers options, custom-model listing and defensive POST branches", async () => {
-  await seedOpenAIConnection({ provider: "custom-embedder", email: "custom-embedder@example.com" });
   await modelsDb.addCustomModel(
     "custom-embedder",
     "text-embed-1",
@@ -1042,11 +1040,6 @@ test("embeddings route returns normalized upstream failures", async () => {
 });
 
 test("embeddings route GET skips malformed, non-embedding, and duplicate custom model rows", async () => {
-  await seedOpenAIConnection();
-  await seedOpenAIConnection({
-    provider: "mixed-embed-provider",
-    email: "mixed-embed-provider@example.com",
-  });
   await modelsDb.addCustomModel(
     "openai",
     "text-embedding-3-small",

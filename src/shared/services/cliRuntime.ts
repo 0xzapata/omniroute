@@ -210,15 +210,6 @@ const CLI_TOOLS: Record<string, any> = {
       config: ".config/deepseek-tui/config.toml",
     },
   },
-  codewhale: {
-    defaultCommand: "codewhale",
-    envBinKey: "CLI_CODEWHALE_BIN",
-    requiresBinary: true,
-    healthcheckTimeoutMs: 8000,
-    paths: {
-      config: ".codewhale/config.toml",
-    },
-  },
   smelt: {
     defaultCommand: "smelt",
     envBinKey: "CLI_SMELT_BIN",
@@ -235,18 +226,6 @@ const CLI_TOOLS: Record<string, any> = {
     healthcheckTimeoutMs: 8000,
     paths: {
       config: ".pi/config.json",
-    },
-  },
-  // Config path reconciled with bin/cli/commands/setup-crush.mjs::resolveCrushTarget's
-  // default (~/.config/crush/crush.json) so the dashboard and `omniroute setup-crush`
-  // agree on one canonical config location.
-  crush: {
-    defaultCommand: "crush",
-    envBinKey: "CLI_CRUSH_BIN",
-    requiresBinary: true,
-    healthcheckTimeoutMs: 8000,
-    paths: {
-      config: ".config/crush/crush.json",
     },
   },
 };
@@ -533,7 +512,7 @@ const getExtraPaths = () =>
  * Checks npm global prefix, NVM locations, standalone installer paths.
  * Works on all platforms — Windows checks .cmd wrappers, Linux/macOS checks bare names.
  */
-export const getKnownToolPaths = (toolId: string): string[] => {
+const getKnownToolPaths = (toolId: string): string[] => {
   const home = os.homedir();
   const paths: string[] = [];
 
@@ -658,7 +637,7 @@ const getNvmNodePath = (): string | null => {
   return null;
 };
 
-export const getLookupEnv = () => {
+const getLookupEnv = () => {
   const env = { ...process.env };
   const extraPaths = getExtraPaths();
   const basePath = env.PATH || env.Path || "";
@@ -1081,7 +1060,7 @@ export const getCliRuntimeStatus = async (toolId: string) => {
   }
 
   const healthcheck = await checkRunnable(
-    located.commandPath || command || "", // located + executable ⇒ commandPath set
+    located.commandPath,
     env,
     Number(tool.healthcheckTimeoutMs || 4000)
   );

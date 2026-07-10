@@ -13,15 +13,11 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 
-// #6147 — user-facing labels renamed from "Cloud …" to "Remote Settings Sync"
-// wording (this feature syncs the operator's own settings to their own remote
-// store — it is not a cloud/telemetry service). Internal state keys, the
-// `cloud_*` material icons and the cloudSync.* wiring are intentionally kept.
 const STATUS_CONFIG = {
-  connected: { icon: "cloud_done", color: "text-green-500", label: "Synced" },
+  connected: { icon: "cloud_done", color: "text-green-500", label: "Cloud" },
   syncing: { icon: "cloud_sync", color: "text-blue-400 animate-pulse", label: "Syncing..." },
-  disconnected: { icon: "cloud_off", color: "text-amber-500", label: "Sync Off" },
-  error: { icon: "cloud_off", color: "text-red-400", label: "Sync Error" },
+  disconnected: { icon: "cloud_off", color: "text-amber-500", label: "Cloud Off" },
+  error: { icon: "cloud_off", color: "text-red-400", label: "Cloud Error" },
   disabled: { icon: "cloud_off", color: "text-text-muted/50", label: "Disabled" },
 };
 
@@ -84,10 +80,10 @@ export default function CloudSyncStatus({ collapsed = false }) {
       className="flex items-center gap-2 px-3 py-1.5 text-xs rounded-lg hover:bg-white/5 transition-colors cursor-pointer w-full"
       title={
         lastSync
-          ? `Remote settings sync ${status === "connected" ? "connected" : "disconnected"} — Last sync: ${lastSync.toLocaleTimeString()}`
+          ? `Cloud ${status === "connected" ? "connected" : "disconnected"} — Last sync: ${lastSync.toLocaleTimeString()}`
           : config.label
       }
-      aria-label={`Remote settings sync status: ${config.label}`}
+      aria-label={`Cloud sync status: ${config.label}`}
     >
       <span className={`material-symbols-outlined text-[16px] ${config.color}`} aria-hidden="true">
         {config.icon}

@@ -32,7 +32,6 @@ import { FORMATS } from "../translator/formats.ts";
 import { createSSETransformStreamWithLogger } from "../utils/stream.ts";
 import { ensureStreamReadiness } from "../utils/streamReadiness.ts";
 import { STREAM_READINESS_TIMEOUT_MS } from "../config/constants.ts";
-import { resolveSuppressThinkClose, THINKING_MARKER_HEADER } from "../utils/thinkCloseMarker.ts";
 
 type JsonRecord = Record<string, unknown>;
 type GlmExecuteResult = Awaited<ReturnType<DefaultExecutor["execute"]>> & {
@@ -181,12 +180,7 @@ function translateAnthropicJsonError(parsed: unknown): JsonRecord {
   };
 }
 
-export function translateSseResponse(
-  response: Response,
-  provider: string,
-  model: string,
-  suppressThinkClose: boolean = false
-): Response {
+function translateSseResponse(response: Response, provider: string, model: string): Response {
   if (!response.body) return response;
   const transform = createSSETransformStreamWithLogger(
     FORMATS.CLAUDE,
@@ -194,14 +188,7 @@ export function translateSseResponse(
     provider,
     null,
     null,
-    model,
-    null,
-    null,
-    null,
-    null,
-    null,
-    false,
-    suppressThinkClose
+    model
   );
   const headers = cloneHeaders(response.headers);
   headers.set("content-type", "text/event-stream");
@@ -415,22 +402,9 @@ export class GlmExecutor extends DefaultExecutor {
     const result = { response, url, headers, transformedBody };
 
     if (transport === "anthropic") {
-      // Resolve whether the `</think>` close marker should be suppressed for
-      // this client. GLM's Anthropic transport does its own Claude→OpenAI
-      // translation (bypassing chatCore's stream), so we must resolve the flag
-      // here from the original client headers (#5245 / #5312).
-      const clientHeaders = input.clientHeaders ?? {};
-      const suppressThinkClose = resolveSuppressThinkClose({
-        userAgent: clientHeaders["user-agent"] ?? clientHeaders["User-Agent"] ?? null,
-        thinkingMarkerHeader:
-          clientHeaders[THINKING_MARKER_HEADER] ??
-          clientHeaders["x-omniroute-thinking-marker"] ??
-          null,
-      });
-
       const translatedResponse =
         input.stream && result.response.ok
-          ? translateSseResponse(result.response, this.provider, input.model, suppressThinkClose)
+          ? translateSseResponse(result.response, this.provider, input.model)
           : isJsonResponse(result.response)
             ? await translateAnthropicJsonResponse(result.response)
             : result.response;

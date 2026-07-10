@@ -4,7 +4,6 @@ import {
   parseRetryAfterHeader,
   detectTestKind,
   extractProviderErrorMessage,
-  resolveModelTestTimeoutMs,
 } from "@/lib/api/modelTestRunner.ts";
 
 // ---------------------------------------------------------------------------
@@ -105,15 +104,4 @@ test("extractProviderErrorMessage includes upstream details when generic error i
     extractProviderErrorMessage(body, "Internal Server Error"),
     "HuggingChat returned HTTP 500: Model is temporarily overloaded"
   );
-});
-
-test("resolveModelTestTimeoutMs extends Dola Pro model checks", () => {
-  assert.equal(resolveModelTestTimeoutMs("doubao-web", "dola-pro", 10_000), 90_000);
-  assert.equal(resolveModelTestTimeoutMs("doubao-web", "doubao-web/dola-pro", 10_000), 90_000);
-  assert.equal(resolveModelTestTimeoutMs("DOUBAO-WEB", "dola-pro", 120_000), 120_000);
-});
-
-test("resolveModelTestTimeoutMs leaves ordinary models unchanged", () => {
-  assert.equal(resolveModelTestTimeoutMs("doubao-web", "dola-speed", 10_000), 10_000);
-  assert.equal(resolveModelTestTimeoutMs("openai", "dola-pro", 10_000), 10_000);
 });

@@ -68,27 +68,6 @@ function stripZeroWidthText(value: string): string {
   return value.replace(/[\u200B-\u200D\uFEFF]/g, "");
 }
 
-function stripZeroWidthToolArgumentJson(value: unknown): string {
-  return stripZeroWidthText(typeof value === "string" ? value : JSON.stringify(value || {}));
-}
-
-function stripZeroWidthFunctionArguments(functionCall: unknown): unknown {
-  const fn = toRecord(functionCall);
-  if (!fn || typeof fn.arguments !== "string") return functionCall;
-  const stripped = stripZeroWidthText(fn.arguments);
-  // Fast path: return the original reference when there is nothing to strip, so
-  // hot streaming paths avoid a per-chunk shallow clone of every tool call.
-  if (stripped === fn.arguments) return functionCall;
-  return { ...fn, arguments: stripped };
-}
-
-function stripZeroWidthToolCallArguments(toolCall: unknown): unknown {
-  const tc = toRecord(toolCall);
-  if (!tc) return toolCall;
-  const fn = stripZeroWidthFunctionArguments(tc.function);
-  return fn === tc.function ? toolCall : { ...tc, function: fn };
-}
-
 function stripZeroWidthValue(value: unknown): unknown {
   if (typeof value === "string") return stripZeroWidthText(value);
   if (Array.isArray(value)) return value.map((item) => stripZeroWidthValue(item));
@@ -439,13 +418,11 @@ function sanitizeMessage(msg: unknown, options: ParseOptions = {}): unknown {
   applyTextualToolCallSanitization(sanitized, msgRecord);
 
   if (msgRecord.tool_calls) {
-    sanitized.tool_calls = Array.isArray(msgRecord.tool_calls)
-      ? msgRecord.tool_calls.map((toolCall) => stripZeroWidthToolCallArguments(toolCall))
-      : msgRecord.tool_calls;
+    sanitized.tool_calls = msgRecord.tool_calls;
   }
 
   if (msgRecord.function_call) {
-    sanitized.function_call = stripZeroWidthFunctionArguments(msgRecord.function_call);
+    sanitized.function_call = msgRecord.function_call;
   }
 
   return sanitized;
@@ -577,23 +554,6 @@ function normalizeResponsesId(id: unknown): string {
   return `resp_${id}`;
 }
 
-/**
- * True when a Responses output item is an assistant `message` in the internal
- * `commentary` phase — i.e. reasoning/scratchpad text that must never reach the
- * client. Streaming `response.output_text.delta` events do not carry the `phase`
- * themselves, so the passthrough path uses this on the `response.output_item.added`
- * item to decide which subsequent deltas/dones to drop statefully (#6199).
- */
-export function isResponsesCommentaryMessageItem(item: unknown): boolean {
-  const itemRecord = toRecord(item);
-  if (!itemRecord) return false;
-  const type = toString(itemRecord.type) || "message";
-  if (type !== "message") return false;
-  const role = toString(itemRecord.role) || "assistant";
-  const phase = toString(itemRecord.phase);
-  return role === "assistant" && phase === "commentary";
-}
-
 function sanitizeResponsesStreamingOutputItem(item: unknown): JsonRecord | null {
   const itemRecord = toRecord(item);
   if (!itemRecord) return null;
@@ -602,7 +562,8 @@ function sanitizeResponsesStreamingOutputItem(item: unknown): JsonRecord | null 
 
   if (type === "message") {
     const role = toString(itemRecord.role) || "assistant";
-    if (isResponsesCommentaryMessageItem(itemRecord)) {
+    const phase = toString(itemRecord.phase);
+    if (role === "assistant" && phase === "commentary") {
       return null;
     }
 
@@ -650,7 +611,10 @@ function sanitizeResponsesStreamingOutputItem(item: unknown): JsonRecord | null 
     return {
       ...itemRecord,
       type: "function_call",
-      arguments: stripZeroWidthToolArgumentJson(itemRecord.arguments),
+      arguments:
+        typeof itemRecord.arguments === "string"
+          ? itemRecord.arguments
+          : JSON.stringify(itemRecord.arguments || {}),
     };
   }
 
@@ -679,8 +643,8 @@ function sanitizeResponsesStreamingOutput(output: unknown): JsonRecord[] {
 // Native Responses streaming events that carry raw model text directly on the
 // root `delta` field. These must get the same zero-width-joiner stripping as the
 // non-streaming path so agent words (opencode/cursor/aider) are not corrupted.
-// Scoped as an allow-list on purpose: other root `delta` events may carry non-text payloads.
-// Function-call argument events are handled separately by stripping only zero-width code points.
+// Scoped as an allow-list on purpose: `response.function_call_arguments.delta`
+// carries tool-call argument JSON that must pass through byte-exact.
 const RESPONSES_STREAMING_TEXT_DELTA_EVENTS = new Set([
   "response.output_text.delta",
   "response.reasoning_summary_text.delta",
@@ -707,18 +671,6 @@ function sanitizeResponsesStreamingEvent(parsedRecord: JsonRecord): JsonRecord {
   }
   if (RESPONSES_STREAMING_TEXT_DONE_EVENTS.has(eventType) && typeof sanitized.text === "string") {
     sanitized.text = stripZeroWidthText(sanitized.text);
-  }
-  if (
-    eventType === "response.function_call_arguments.delta" &&
-    typeof sanitized.delta === "string"
-  ) {
-    sanitized.delta = stripZeroWidthText(sanitized.delta);
-  }
-  if (
-    eventType === "response.function_call_arguments.done" &&
-    typeof sanitized.arguments === "string"
-  ) {
-    sanitized.arguments = stripZeroWidthText(sanitized.arguments);
   }
 
   if (parsedRecord.item !== undefined) {
@@ -818,7 +770,10 @@ function sanitizeResponsesOutputItem(item: unknown, index: number): JsonRecord |
       type: "function_call",
       call_id: callId,
       name: toString(itemRecord.name) || "",
-      arguments: stripZeroWidthToolArgumentJson(itemRecord.arguments),
+      arguments:
+        typeof itemRecord.arguments === "string"
+          ? itemRecord.arguments
+          : JSON.stringify(itemRecord.arguments || {}),
     };
   }
 
@@ -983,7 +938,8 @@ function convertOpenAIResponseToResponses(openaiResponse: JsonRecord): JsonRecor
       type: "function_call",
       call_id: callId,
       name: toString(fn.name) || "",
-      arguments: stripZeroWidthToolArgumentJson(fn.arguments),
+      arguments:
+        typeof fn.arguments === "string" ? fn.arguments : JSON.stringify(fn.arguments || {}),
     });
   }
 
@@ -1070,17 +1026,15 @@ export function sanitizeStreamingChunk(parsed: unknown): unknown {
               ? deltaRecord.tool_calls.map((tc) => {
                   const t = toRecord(tc);
                   if (!t) return tc;
-                  const strippedToolCall = stripZeroWidthToolCallArguments(t);
-                  const strippedRecord = toRecord(strippedToolCall) || t;
                   if (t.id !== undefined && t.id !== null && typeof t.id !== "string") {
-                    return { ...strippedRecord, id: String(t.id) };
+                    return { ...t, id: String(t.id) };
                   }
-                  return strippedRecord;
+                  return t;
                 })
               : deltaRecord.tool_calls;
           }
           if (deltaRecord.function_call !== undefined)
-            delta.function_call = stripZeroWidthFunctionArguments(deltaRecord.function_call);
+            delta.function_call = deltaRecord.function_call;
           c.delta = delta;
         } else {
           c.delta = choiceRecord.delta;

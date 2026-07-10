@@ -64,8 +64,7 @@ export function extractPanelText(json: unknown): string {
   // Gemini (parts carry .text without a type discriminator)
   const candidates = j.candidates as Array<Record<string, unknown>> | undefined;
   const parts = (candidates?.[0]?.content as Record<string, unknown> | undefined)?.parts as
-    | Array<{ text?: unknown }>
-    | undefined;
+    Array<{ text?: unknown }> | undefined;
   if (Array.isArray(parts)) {
     const t = parts.map((p) => (typeof p?.text === "string" ? p.text : "")).join("");
     if (t.trim()) return t;
@@ -100,10 +99,7 @@ export function appendUserTurn(body: Body, text: string): Body {
   } else if (Array.isArray(body.input)) {
     next.input = [...(body.input as unknown[]), { role: "user", content: text }];
   } else if (Array.isArray(body.contents)) {
-    next.contents = [
-      ...(body.contents as unknown[]),
-      { role: "user", parts: [{ text }] },
-    ];
+    next.contents = [...(body.contents as unknown[]), { role: "user", parts: [{ text }] }];
   } else {
     next.messages = [{ role: "user", content: text }];
   }
@@ -135,10 +131,7 @@ export function buildJudgePrompt(answers: Array<{ text: string }>): string {
 type Sentinel = { __timeout?: true; __error?: unknown };
 
 // Resolve a Response (or sentinel) within ms; the loser keeps running but is ignored.
-function withTimeout(
-  promise: Promise<Response>,
-  ms: number
-): Promise<Response | Sentinel> {
+function withTimeout(promise: Promise<Response>, ms: number): Promise<Response | Sentinel> {
   return new Promise((resolve) => {
     const t = setTimeout(() => resolve({ __timeout: true }), ms);
     Promise.resolve(promise)
@@ -268,7 +261,6 @@ export async function handleFusionChat({
 
   // 2. Collect successful answers.
   const answers: Array<{ model: string; text: string }> = [];
-  const rateLimited: string[] = [];
   for (let i = 0; i < settled.length; i++) {
     const res = settled[i];
     const model = panel[i];
@@ -289,12 +281,7 @@ export async function handleFusionChat({
     }
     const resp = res as Response;
     if (!resp.ok) {
-      if (resp.status === 429) {
-        rateLimited.push(model);
-        log.warn("FUSION", `Panel ${model} rate-limited`, { status: resp.status });
-      } else {
-        log.warn("FUSION", `Panel ${model} failed`, { status: resp.status });
-      }
+      log.warn("FUSION", `Panel ${model} failed`, { status: resp.status });
       continue;
     }
     try {
@@ -315,18 +302,11 @@ export async function handleFusionChat({
 
   // 3. Degrade gracefully when the panel is too thin to fuse.
   if (answers.length === 0) {
-    const detail =
-      rateLimited.length > 0
-        ? `${rateLimited.length} models rate-limited, ${panel.length - rateLimited.length} failed`
-        : `all ${panel.length} models failed`;
-    log.warn("FUSION", `No live models: ${detail}`);
-    return errorResponse(503, `All fusion panel models failed (${detail})`);
+    log.warn("FUSION", "All panel models failed");
+    return errorResponse(503, "All fusion panel models failed");
   }
   if (answers.length === 1) {
-    log.info(
-      "FUSION",
-      `Only ${answers[0].model} succeeded — answering directly (no fusion)`
-    );
+    log.info("FUSION", `Only ${answers[0].model} succeeded — answering directly (no fusion)`);
     return handleSingleModel(body, answers[0].model);
   }
 

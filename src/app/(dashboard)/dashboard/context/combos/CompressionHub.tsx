@@ -112,15 +112,10 @@ export default function CompressionHub() {
       setSettings(next);
       setError(null);
       try {
-        // Send only the changed fields (patch), not the full merged settings.
-        // The API schema is designed for partial updates; sending the full
-        // CompressionConfig round-trips fields unknown to the schema and causes
-        // a 400 strict-validation failure (e.g. contextBudget, pipeline engines
-        // added after the schema was written). CompressionPanel already does this.
         const res = await fetch("/api/settings/compression", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(patch),
+          body: JSON.stringify(next),
         });
         if (!res.ok) {
           setSettings(settings); // revert
@@ -158,9 +153,7 @@ export default function CompressionHub() {
           </span>
           <div>
             <h1 className="text-xl font-bold text-text-main">Compression Hub</h1>
-            <p className="text-sm text-text-muted">
-              Pick which compression profile runs globally.
-            </p>
+            <p className="text-sm text-text-muted">Pick which compression profile runs globally.</p>
           </div>
         </div>
         <button
@@ -211,7 +204,8 @@ export default function CompressionHub() {
             Active profile
           </label>
           <p className="text-xs text-text-muted">
-            Pick which compression profile runs globally — the panel-derived Default or a saved named combo.
+            Pick which compression profile runs globally — the panel-derived Default or a saved
+            named combo.
           </p>
         </div>
         <select

@@ -28,7 +28,6 @@ export interface CompressionPreviewDiff {
   validationWarnings: string[];
   validationErrors: string[];
   fallbackApplied: boolean;
-  fallbackReason?: string;
   heatmap?: CompressionHeatmap;
 }
 
@@ -188,15 +187,6 @@ export function buildCompressionPreviewDiff(
     ? [{ type: "same", text: "[diff omitted: input too large]" }]
     : buildCompressionDiff(original, compressed);
 
-  let fallbackReason: string | undefined;
-  if (validation.fallbackApplied) {
-    fallbackReason = validation.errors.length > 0
-      ? `validation-failed: ${validation.errors[0]}`
-      : "validation-failed";
-  } else if (stats?.fallbackApplied) {
-    fallbackReason = "compression-fallback";
-  }
-
   const result: CompressionPreviewDiff = {
     segments,
     preservedBlocks: preserved,
@@ -208,7 +198,6 @@ export function buildCompressionPreviewDiff(
     ],
     validationErrors: [...(stats?.validationErrors ?? []), ...validation.errors],
     fallbackApplied: Boolean(stats?.fallbackApplied || validation.fallbackApplied),
-    ...(fallbackReason && { fallbackReason }),
   };
 
   if (heatmapMode) {

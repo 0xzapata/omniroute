@@ -11,10 +11,6 @@ export interface PlaygroundParams {
   seed: number | null;
   stop: string;
   jsonMode: boolean;
-  // #6241: canonical reasoning params — surfaced by ReasoningControls only when the selected
-  // model supports thinking. `effort: ""` means "not set" (left off the request body).
-  effort: string;
-  thinking: boolean;
 }
 
 export const DEFAULT_PARAMS: PlaygroundParams = {
@@ -26,8 +22,6 @@ export const DEFAULT_PARAMS: PlaygroundParams = {
   seed: null,
   stop: "",
   jsonMode: false,
-  effort: "",
-  thinking: false,
 };
 
 interface ParamSlidersProps {

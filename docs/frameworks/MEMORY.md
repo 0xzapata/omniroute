@@ -519,7 +519,7 @@ See [MCP-SERVER.md](./MCP-SERVER.md) for transport and scope details.
 
 `src/app/(dashboard)/dashboard/memory/page.tsx` is now a **3-tab Studio**:
 
-### Tab: Memories
+### Tab: Memórias / Memories
 
 - Concept card (collapsible "How it works" explainer).
 - Real-time list, search, and pagination (debounced 300 ms).

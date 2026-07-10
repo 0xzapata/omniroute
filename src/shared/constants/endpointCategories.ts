@@ -79,12 +79,6 @@ export const ENDPOINT_CATEGORIES: readonly EndpointCategory[] = [
     prefixes: ["/v1/moderations"],
   },
   {
-    id: "ocr",
-    label: "OCR",
-    description: "Optical character recognition",
-    prefixes: ["/v1/ocr"],
-  },
-  {
     id: "batches",
     label: "Batch Processing",
     description: "Batch API operations",

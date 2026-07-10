@@ -2,7 +2,11 @@ import { handleVideoGeneration } from "@omniroute/open-sse/handlers/videoGenerat
 import { resolveVideoCredentialProvider } from "@omniroute/open-sse/handlers/videoGeneration/googleFlow.ts";
 import { withInjectionGuard } from "@/middleware/promptInjectionGuard";
 import { getProviderCredentials, clearRecoveredProviderState } from "@/sse/services/auth";
-import { parseVideoModel, getVideoProvider } from "@omniroute/open-sse/config/videoRegistry.ts";
+import {
+  parseVideoModel,
+  getAllVideoModels,
+  getVideoProvider,
+} from "@omniroute/open-sse/config/videoRegistry.ts";
 import { errorResponse } from "@omniroute/open-sse/utils/error.ts";
 import { HTTP_STATUS } from "@omniroute/open-sse/config/constants.ts";
 import * as log from "@/sse/utils/logger";
@@ -13,14 +17,12 @@ import {
 } from "@/app/api/v1/_shared/rateLimit";
 import {
   failedMediaGenerationResponse,
+  mediaGenerationModelListResponse,
   mediaGenerationOptionsResponse,
   promptRequiredResponse,
   readMediaGenerationBody,
   successfulMediaGenerationResponse,
 } from "@/app/api/v1/_shared/mediaGenerationRoute";
-import { getSpecialtyModelsResponse } from "@/app/api/v1/_shared/specialtyCatalog";
-
-export const dynamic = "force-dynamic";
 
 /**
  * Handle CORS preflight
@@ -32,12 +34,8 @@ export async function OPTIONS() {
 /**
  * GET /v1/videos/generations — list available video models
  */
-export async function GET(request?: Request) {
-  return getSpecialtyModelsResponse(
-    request,
-    "/v1/videos/generations",
-    (model) => model.type === "video"
-  );
+export async function GET() {
+  return mediaGenerationModelListResponse(getAllVideoModels(), "video");
 }
 
 /**

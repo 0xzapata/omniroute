@@ -36,10 +36,6 @@ test("zenmux-free WEB_COOKIE_PROVIDERS entry is marked as free-tier", () => {
   >;
   assert.equal(p.hasFree, true);
   assert.ok(typeof p.freeNote === "string" && (p.freeNote as string).length > 0);
-  assert.ok(
-    !(p.freeNote as string).includes("MiMo V2 Flash Free"),
-    "free note must not advertise deprecated MiMo V2 Flash Free"
-  );
   assert.ok(typeof p.authHint === "string" && (p.authHint as string).length > 0);
 });
 
@@ -56,11 +52,12 @@ test("zenmux-free is present in the provider REGISTRY with correct shape", () =>
   assert.equal(r.authHeader, "cookie");
 });
 
-test("zenmux-free registry excludes deprecated MiMo V2 Flash Free", () => {
+test("zenmux-free registry has 12 models including the 3 key free-tier ones", () => {
   const r = REGISTRY["zenmux-free"];
   assert.ok(r.models && r.models.length > 0, "must have at least one model");
   const ids = r.models.map((m) => m.id);
 
+  // The 3 main models mentioned in the upstream PR
   assert.ok(
     ids.includes("deepseek/deepseek-chat"),
     "deepseek/deepseek-chat (DeepSeek V3.2) must be registered"
@@ -69,8 +66,11 @@ test("zenmux-free registry excludes deprecated MiMo V2 Flash Free", () => {
     ids.includes("z-ai/glm-4.7-flash-free"),
     "z-ai/glm-4.7-flash-free (GLM 4.7 Flash Free) must be registered"
   );
-  assert.ok(!ids.includes("xiaomi/mimo-v2-flash-free"), "xiaomi/mimo-v2-flash-free is deprecated");
-  assert.equal(r.models.length, 11, "must have exactly 11 models");
+  assert.ok(
+    ids.includes("xiaomi/mimo-v2-flash-free"),
+    "xiaomi/mimo-v2-flash-free (MiMo V2 Flash Free) must be registered"
+  );
+  assert.equal(r.models.length, 12, "must have exactly 12 models");
 });
 
 test("zenmux-free model names are human-readable strings", () => {

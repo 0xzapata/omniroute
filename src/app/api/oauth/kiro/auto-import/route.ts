@@ -106,8 +106,7 @@ async function tryKiroCliSqlite(): Promise<{
         for (const table of ["auth_kv", "ItemTable", "storage"]) {
           try {
             const row = db.prepare(`SELECT value FROM ${table} WHERE key = ?`).get(key) as
-              | { value: string }
-              | undefined;
+              { value: string } | undefined;
             if (row?.value) {
               try {
                 tokenData = JSON.parse(row.value);
@@ -134,8 +133,7 @@ async function tryKiroCliSqlite(): Promise<{
         for (const table of ["auth_kv", "ItemTable", "storage"]) {
           try {
             const row = db.prepare(`SELECT value FROM ${table} WHERE key = ?`).get(key) as
-              | { value: string }
-              | undefined;
+              { value: string } | undefined;
             if (row?.value) {
               try {
                 regData = JSON.parse(row.value);
@@ -258,13 +256,8 @@ async function tryAwsSsoCache(targetProvider: string): Promise<{
         }
 
         // Read profileArn from Kiro IDE's profile.json.
-        // Kiro IDC (Identity Center) accounts can live in regions other than
-        // us-east-1. #2059 forced every ARN's region segment to us-east-1,
-        // which 403s the runtime gateway for non-us-east-1 IDC accounts. The
-        // OAuth device-code path (src/lib/oauth/providers/kiro.ts) already
-        // discovers the correct region-matched ARN; mirror that here by
-        // preserving the profile's ARN region verbatim instead of rewriting
-        // it.
+        // The runtime gateway requires us-east-1 in the ARN regardless of the IDC
+        // region, so we normalize the ARN region to us-east-1 (#2059).
         let profileArn: string | null = null;
         const kiroProfilePaths = [
           join(
@@ -290,7 +283,11 @@ async function tryAwsSsoCache(targetProvider: string): Promise<{
             const profileContent = await readFile(profilePath, "utf-8");
             const profileData = JSON.parse(profileContent);
             if (profileData.arn) {
-              profileArn = profileData.arn;
+              // Normalize region to us-east-1 for the runtime gateway
+              profileArn = profileData.arn.replace(
+                /arn:aws:codewhisperer:[^:]+:/,
+                "arn:aws:codewhisperer:us-east-1:"
+              );
               break;
             }
           } catch {

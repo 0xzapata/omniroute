@@ -20,13 +20,10 @@ function buildRelayFunction(relayAuth: string): string {
   // Node-side helpers from the Edge runtime); it blocks RFC1918, loopback,
   // link-local, IPv6 ULA, and embedded credentials on the x-relay-target host.
   // `resolveRelayTarget` (shared with the Deno worker) closes the x-relay-path
-  // host-confusion hole and is embedded verbatim via Function#toString. It is
-  // bound to a LITERAL const name (not a bare declaration) so the hardcoded
-  // call site below resolves even when the SWC-minified standalone build mangles
-  // the source function's own name in `.toString()` output (#6149).
+  // host-confusion hole and is embedded verbatim via Function#toString.
   return `export const config = { runtime: "edge" };
 
-const resolveRelayTarget = ${resolveRelayTarget.toString()};
+${resolveRelayTarget.toString()}
 
 function isPrivateHostname(h) {
   if (!h) return true;

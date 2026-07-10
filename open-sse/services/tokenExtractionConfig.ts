@@ -246,19 +246,15 @@ const RAW_CONFIGS: TokenExtractionConfig[] = [
     }
   ),
 
-  // ── Dola Web ──────────────────────────────────────────────
+  // ── DouBao Web ────────────────────────────────────────────
   config(
     "doubao-web",
-    "Dola (ByteDance)",
-    "https://www.dola.com/",
-    "https://www.dola.com",
-    [
-      { type: "cookie", name: "sessionid", domain: ".dola.com" },
-      { type: "cookie", name: "ttwid", domain: ".dola.com" },
-      { type: "cookie", name: "s_v_web_id", domain: ".dola.com" },
-    ],
-    "Log in to Dola at www.dola.com with your ByteDance account. sessionid, ttwid, and s_v_web_id will be extracted.",
-    { cookieDomain: ".dola.com" }
+    "DouBao (ByteDance)",
+    "https://www.doubao.com/",
+    "https://www.doubao.com",
+    [{ type: "cookie", name: "sessionid", domain: ".doubao.com" }],
+    "Log in to DouBao at doubao.com with your ByteDance account. The sessionid will be extracted.",
+    { cookieDomain: ".doubao.com" }
   ),
 
   // ── T3 Chat Web ───────────────────────────────────────────

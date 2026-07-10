@@ -93,6 +93,7 @@ function createMockRedisClient() {
       return keys.map((k) => store.get(k) ?? null);
     },
 
+     
     async eval(...args: unknown[]): Promise<unknown> {
       record("eval", ...args);
       return null;

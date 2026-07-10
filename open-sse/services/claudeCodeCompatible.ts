@@ -15,7 +15,6 @@ import {
 import { applyClaudeCodeCompatibleThinkingDisplay } from "./claudeCodeCompatibleThinkingDisplay.ts";
 import { obfuscateInBody } from "./claudeCodeObfuscation.ts";
 import { applySystemTransformPipeline, PROVIDER_CC_BRIDGE } from "./systemTransforms.ts";
-import { usesCcWireImage } from "./ccWireImageBuiltins.ts";
 import {
   fixToolPairs,
   fixToolAdjacency,
@@ -55,7 +54,6 @@ const CLAUDE_CODE_COMPATIBLE_DEFAULT_SYSTEM_BLOCKS = [
 ];
 const CONTEXT_1M_SUPPORTED_MODELS = [
   "claude-fable-5",
-  "claude-sonnet-5",
   "claude-opus-4-8",
   "claude-opus-4-7",
   "claude-opus-4-6",
@@ -96,12 +94,7 @@ function supportsClaudeXHighEffort(model: string | null | undefined): boolean {
 }
 
 export function isClaudeCodeCompatibleProvider(provider: string | null | undefined): boolean {
-  return (
-    (typeof provider === "string" && provider.startsWith(CLAUDE_CODE_COMPATIBLE_PREFIX)) ||
-    // Built-in providers (e.g. agentrouter) that adopt the dynamic CC wire image
-    // while keeping their own registry baseUrl + auth (#6056).
-    usesCcWireImage(provider)
-  );
+  return typeof provider === "string" && provider.startsWith(CLAUDE_CODE_COMPATIBLE_PREFIX);
 }
 
 export function stripAnthropicMessagesSuffix(baseUrl: string | null | undefined): string {
@@ -182,12 +175,13 @@ export function buildClaudeCodeCompatibleHeaders(
   sessionId?: string | null,
   options: { redactThinking?: boolean } = {}
 ): Record<string, string> {
+  void stream;
   // These headers intentionally mirror Claude Code's wire image closely.
   // For CC-compatible relays, passing the upstream's client-gating checks is
   // more important than forwarding arbitrary caller-specific header shapes.
   return {
     "Content-Type": "application/json",
-    Accept: stream ? "text/event-stream" : "application/json",
+    Accept: "application/json",
     Authorization: `Bearer ${apiKey}`,
     "anthropic-version": CLAUDE_CODE_COMPATIBLE_ANTHROPIC_VERSION,
     "anthropic-beta": resolveClaudeCodeCompatibleAnthropicBeta({
