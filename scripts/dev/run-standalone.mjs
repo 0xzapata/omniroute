@@ -28,7 +28,21 @@ childEnv.NODE_OPTIONS =
 // rather than trusting the spoofable Host header.
 const entry = existsSync("server-ws.mjs") ? "server-ws.mjs" : "server.js";
 
-spawnWithForwardedSignals("node", [entry], {
+// #6423 regression: RFC 8305 Happy Eyeballs (autoSelectFamily) races IPv6+IPv4
+// per-connection, but on container networks with a broken/absent IPv6 route
+// (e.g. Zeabur) the race does not always fall back cleanly, so every direct
+// /v1/* egress hangs until timeout while the dashboard (no outbound calls)
+// stays healthy. Forcing the resolver to return IPv4 first makes connects use
+// the working family directly. This entry point only runs in Docker, so the
+// fix is inherently deployment-scoped. Override with OMNIROUTE_DNS_RESULT_ORDER
+// (e.g. "verbatim") on hosts that do have working IPv6.
+const dnsResultOrder = childEnv.OMNIROUTE_DNS_RESULT_ORDER || "ipv4first";
+const nodeArgs =
+  dnsResultOrder === "verbatim"
+    ? [entry]
+    : [`--dns-result-order=${dnsResultOrder}`, entry];
+
+spawnWithForwardedSignals("node", nodeArgs, {
   stdio: "inherit",
   env: childEnv,
 });
