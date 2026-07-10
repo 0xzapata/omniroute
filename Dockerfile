@@ -75,22 +75,19 @@ RUN --mount=type=cache,id=npm-cache,target=/root/.npm \
   && node -e "require('better-sqlite3')(':memory:').close()"
 
 # Build with webpack (the long-standing stable path). Turbopack was re-enabled on
-# 2026-07-09 (ccd79651a) but its standalone output is broken at runtime: the runner
-# image starts ("Next.js ✓ Ready") yet every request throws
-# `uncaughtException: file data stream has unexpected number of bytes` from a
-# corrupt `.build/next/server/chunks/_*.js` chunk, so the /api/monitoring/health
-# smoke test times out. This was masked while the better-sqlite3 rebuild was broken
-# (the build never reached the smoke step). Likely a Next 16.2.9→16.2.10 Turbopack
-# standalone-tracing regression or an npm 12 interaction; revisit once a Turbopack
-# standalone build produces a request-serving image. Webpack is slower (~17min vs
-# Turbopack's ~9min) but produces a working image. Flip to 1 to opt back into
-# Turbopack once the chunk-corruption issue is resolved.
+# 2026-07-09 (ccd79651a) but its standalone output was broken at runtime. Webpack
+# is slower (~17min vs Turbopack's ~9min) but is the proven path. Flip to 1 to
+# opt back into Turbopack.
 # See docs/ops/QUALITY_GATE_PLAYBOOK.md Parte 6.
 ENV OMNIROUTE_USE_TURBOPACK=0
 
 # Docker containers cannot run the MITM/Agent-Bridge stack (no host DNS/cert
 # access), so keep @/mitm/manager on the graceful stub (#3390). This flag is
 # Docker-only: npm/Electron/VPS builds must bundle the REAL manager (#6344).
+# Also used by next.config.mjs to disable Next.js built-in compression
+# (compress: false) — the Brotli path crashes the standalone server with
+# "file data stream has unexpected number of bytes" (#6401). Docker/Zeabur
+# deployments sit behind a reverse proxy that handles compression.
 ENV OMNIROUTE_MITM_STUB=1
 
 # Raise the V8 heap ceiling for the build. The webpack production optimization
