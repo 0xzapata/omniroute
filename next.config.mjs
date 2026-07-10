@@ -118,7 +118,12 @@ const nextConfig = {
     },
   },
   output: "standalone",
-  compress: true,
+  // Docker standalone: disable Next.js built-in compression. The server's
+  // Brotli path throws "file data stream has unexpected number of bytes"
+  // (uncaughtException) on the first request, killing the healthcheck (#6401).
+  // Docker/Zeabur deployments sit behind a reverse proxy that handles
+  // compression, so this is safe. OMNIROUTE_MITM_STUB=1 is Docker-only.
+  compress: process.env.OMNIROUTE_MITM_STUB !== "1",
   productionBrowserSourceMaps: false,
   // OmniRoute is a proxy for AI APIs — request bodies routinely include
   // multi-MB payloads (vision models, image edits, base64-encoded files,
