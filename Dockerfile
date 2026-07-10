@@ -9,7 +9,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=shared   --mount=type=cache
 
 # Refresh the globally-installed npm so its bundled node_modules (undici, tar) ship the
 # patched versions — container scanner flags the stale copies under npm's own internals.
-RUN npm install -g npm@latest   && npm cache clean --force
+RUN npm install -g npm@11.18.0   && npm cache clean --force
 
 # -- Builder ----------------------------------------------------------------
 FROM base AS builder
