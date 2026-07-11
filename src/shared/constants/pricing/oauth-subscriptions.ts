@@ -72,6 +72,37 @@ export const DEFAULT_PRICING_OAUTH = {
   },
   cx: {
     "codex-auto-review": GPT_5_5_PRICING,
+    // Analytics fallback only: ChatGPT subscription traffic has no public
+    // per-token GPT-5.6 price. Reuse the existing Codex accounting tier until
+    // an authoritative model-specific rate is published; this does not assert
+    // that GPT-5.6 and GPT-5.5 have equal upstream pricing.
+    "gpt-5.6": GPT_5_5_PRICING,
+    "gpt-5.6-ultra": GPT_5_5_PRICING,
+    "gpt-5.6-max": GPT_5_5_PRICING,
+    "gpt-5.6-xhigh": GPT_5_5_PRICING,
+    "gpt-5.6-high": GPT_5_5_PRICING,
+    "gpt-5.6-medium": GPT_5_5_PRICING,
+    "gpt-5.6-low": GPT_5_5_PRICING,
+    "gpt-5.6-sol": GPT_5_5_PRICING,
+    "gpt-5.6-sol-ultra": GPT_5_5_PRICING,
+    "gpt-5.6-sol-max": GPT_5_5_PRICING,
+    "gpt-5.6-sol-xhigh": GPT_5_5_PRICING,
+    "gpt-5.6-sol-high": GPT_5_5_PRICING,
+    "gpt-5.6-sol-medium": GPT_5_5_PRICING,
+    "gpt-5.6-sol-low": GPT_5_5_PRICING,
+    "gpt-5.6-terra": GPT_5_5_PRICING,
+    "gpt-5.6-terra-ultra": GPT_5_5_PRICING,
+    "gpt-5.6-terra-max": GPT_5_5_PRICING,
+    "gpt-5.6-terra-xhigh": GPT_5_5_PRICING,
+    "gpt-5.6-terra-high": GPT_5_5_PRICING,
+    "gpt-5.6-terra-medium": GPT_5_5_PRICING,
+    "gpt-5.6-terra-low": GPT_5_5_PRICING,
+    "gpt-5.6-luna": GPT_5_5_PRICING,
+    "gpt-5.6-luna-max": GPT_5_5_PRICING,
+    "gpt-5.6-luna-xhigh": GPT_5_5_PRICING,
+    "gpt-5.6-luna-high": GPT_5_5_PRICING,
+    "gpt-5.6-luna-medium": GPT_5_5_PRICING,
+    "gpt-5.6-luna-low": GPT_5_5_PRICING,
     // GPT 5.5
     "gpt-5.5": GPT_5_5_PRICING,
     "gpt5.5": GPT_5_5_PRICING,

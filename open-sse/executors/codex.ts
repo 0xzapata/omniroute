@@ -116,7 +116,7 @@ function codexWebSocketUnavailableResponse(): Response {
 export { getCodexModelScope, getCodexRateLimitKey, type CodexQuotaScope };
 
 // Ordered list of effort levels from lowest to highest
-const EFFORT_ORDER = ["none", "low", "medium", "high", "xhigh"] as const;
+const EFFORT_ORDER = ["none", "low", "medium", "high", "xhigh", "max", "ultra"] as const;
 type EffortLevel = (typeof EFFORT_ORDER)[number];
 const CODEX_FAST_WIRE_VALUE = "priority";
 const CODEX_RESPONSES_WS_URL = "wss://chatgpt.com/backend-api/codex/responses";
@@ -138,7 +138,12 @@ function splitCodexReasoningSuffix(model: unknown): {
 }
 
 export function getCodexUpstreamModel(model: unknown): string {
-  return splitCodexReasoningSuffix(model).baseModel;
+  const baseModel = splitCodexReasoningSuffix(model).baseModel;
+  return baseModel === "gpt-5.6" ? "gpt-5.6-sol" : baseModel;
+}
+
+function usesCodexResponsesLiteInput(model: unknown): boolean {
+  return /^gpt-5\.6-(?:sol|terra|luna)$/.test(getCodexUpstreamModel(model));
 }
 
 /**
@@ -341,6 +346,9 @@ function normalizeServiceTierValue(value: unknown): string | undefined {
  * Update this table when Codex releases new models with different caps.
  */
 const MAX_EFFORT_BY_MODEL: Record<string, EffortLevel> = {
+  "gpt-5.6-sol": "ultra",
+  "gpt-5.6-terra": "ultra",
+  "gpt-5.6-luna": "max",
   "gpt-5.3-codex": "xhigh",
   "gpt-5.1-codex-max": "xhigh",
   "gpt-5-mini": "high",
@@ -369,7 +377,6 @@ const CODEX_DEFAULT_REASONING_SUMMARY = "auto";
 function normalizeEffortValue(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const normalized = value.trim().toLowerCase();
-  if (normalized === "max") return "xhigh";
   return normalized || undefined;
 }
 
@@ -1057,7 +1064,9 @@ export class CodexExecutor extends BaseExecutor {
       }));
     }
 
-    normalizeCodexResponsesInput(body);
+    normalizeCodexResponsesInput(body, {
+      contentMode: usesCodexResponsesLiteInput(body.model ?? model) ? "responses-lite" : "standard",
+    });
 
     if (Array.isArray(body.input)) {
       body.input = sanitizeResponsesInputItems(body.input, false, {
@@ -1148,8 +1157,13 @@ export class CodexExecutor extends BaseExecutor {
     const splitModel = splitCodexReasoningSuffix(cleanModel);
     if (splitModel.effort) {
       modelEffort = splitModel.effort;
-      body.model = splitModel.baseModel;
-      cleanModel = splitModel.baseModel;
+      const upstreamModel = getCodexUpstreamModel(splitModel.baseModel);
+      body.model = upstreamModel;
+      cleanModel = upstreamModel;
+    } else {
+      const upstreamModel = getCodexUpstreamModel(cleanModel);
+      body.model = upstreamModel;
+      cleanModel = upstreamModel;
     }
 
     const reasoningRecord =

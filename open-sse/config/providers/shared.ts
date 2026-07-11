@@ -293,6 +293,18 @@ export const GPT_5_4_CODEX_CAPABILITIES = {
   maxOutputTokens: 128000,
 } as const;
 
+// GPT-5.6 Codex family metadata from openai/codex models-manager/models.json.
+// The upstream catalog reports max_output_tokens as null, so do not advertise
+// a synthetic output limit here.
+export const GPT_5_6_CODEX_CAPABILITIES = {
+  targetFormat: "openai-responses",
+  toolCalling: true,
+  supportsReasoning: true,
+  supportsVision: true,
+  supportsXHighEffort: true,
+  contextLength: 372000,
+} as const;
+
 export const CHAT_OPENAI_COMPAT_MODELS: Record<string, RegistryModel[]> = {
   deepinfra: buildModels([
     "anthropic/claude-4-opus",
