@@ -32,6 +32,7 @@ test("Codex GPT-5.6 compatibility alias resolves upstream to Sol", () => {
   assert.equal(getCodexUpstreamModel("gpt-5.6"), "gpt-5.6-sol");
   assert.equal(getCodexUpstreamModel("gpt-5.6-ultra"), "gpt-5.6-sol");
   assert.equal(getCodexUpstreamModel("gpt-5.6-terra-max"), "gpt-5.6-terra");
+  assert.equal(getCodexUpstreamModel("gpt-5.1-codex-max"), "gpt-5.1-codex-max");
 });
 
 test("Codex GPT-5.6 preserves supported efforts and caps Luna at max", () => {
@@ -56,4 +57,65 @@ test("Codex GPT-5.6 preserves supported efforts and caps Luna at max", () => {
   const alias = transform("gpt-5.6-ultra", "low");
   assert.equal(alias.model, "gpt-5.6-sol");
   assert.equal(alias.reasoning.effort, "ultra");
+});
+
+test("Codex GPT-5.6 adapts assistant history for Responses Lite", () => {
+  const executor = new CodexExecutor();
+  const result = executor.transformRequest(
+    "gpt-5.6-sol",
+    {
+      _nativeCodexPassthrough: true,
+      model: "gpt-5.6-sol",
+      input: [
+        {
+          type: "message",
+          role: "assistant",
+          content: [
+            {
+              type: "output_text",
+              text: "Previous answer",
+              annotations: [],
+              logprobs: [],
+              obfuscation: "opaque",
+            },
+            { type: "input_image", image_url: "https://example.com/assistant.png" },
+            {
+              type: "image_url",
+              image_url: { url: "https://example.com/legacy-assistant.png", detail: "high" },
+            },
+            { type: "scoped_content", scope: "conversation", content: "preserve" },
+          ],
+        },
+      ],
+    },
+    false,
+    { requestEndpointPath: "/responses" }
+  );
+
+  assert.deepEqual(result.input[0], {
+    type: "message",
+    role: "assistant",
+    content: [
+      { type: "input_text", text: "Previous answer" },
+      { type: "input_image", image_url: "https://example.com/assistant.png" },
+      {
+        type: "input_image",
+        image_url: "https://example.com/legacy-assistant.png",
+        detail: "high",
+      },
+      { type: "scoped_content", scope: "conversation", content: "preserve" },
+    ],
+  });
+});
+
+test("Codex preserves the literal gpt-5.1-codex-max model id", () => {
+  const executor = new CodexExecutor();
+  const result = executor.transformRequest(
+    "gpt-5.1-codex-max",
+    { model: "gpt-5.1-codex-max", input: [] },
+    false,
+    {}
+  );
+
+  assert.equal(result.model, "gpt-5.1-codex-max");
 });
