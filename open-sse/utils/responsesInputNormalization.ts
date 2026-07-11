@@ -1,32 +1,59 @@
 type JsonRecord = Record<string, unknown>;
 
-function textPartTypeForRole(role: string): "input_text" | "output_text" {
+export interface CodexResponsesInputNormalizationOptions {
+  contentMode?: "standard" | "responses-lite";
+}
+
+function textPartTypeForRole(
+  role: string,
+  contentMode: CodexResponsesInputNormalizationOptions["contentMode"]
+): "input_text" | "output_text" {
+  if (contentMode === "responses-lite") return "input_text";
   return role === "assistant" ? "output_text" : "input_text";
 }
 
-function normalizeCodexMessageContentPart(part: unknown, role: string): unknown {
-  if (typeof part === "string") return { type: textPartTypeForRole(role), text: part };
+function normalizeCodexMessageContentPart(
+  part: unknown,
+  role: string,
+  contentMode: CodexResponsesInputNormalizationOptions["contentMode"]
+): unknown {
+  if (typeof part === "string") {
+    return { type: textPartTypeForRole(role, contentMode), text: part };
+  }
   if (!part || typeof part !== "object" || Array.isArray(part)) return part;
 
   const record = { ...(part as JsonRecord) };
-  if (record.type === "text") record.type = textPartTypeForRole(role);
+  if (record.type === "text") record.type = textPartTypeForRole(role, contentMode);
+  if (contentMode === "responses-lite" && record.type === "output_text") {
+    record.type = "input_text";
+    delete record.annotations;
+    delete record.logprobs;
+    delete record.obfuscation;
+  }
   return record;
 }
 
-function buildCodexMessageContent(item: JsonRecord, role: string): unknown[] {
+function buildCodexMessageContent(
+  item: JsonRecord,
+  role: string,
+  contentMode: CodexResponsesInputNormalizationOptions["contentMode"]
+): unknown[] {
   if (Array.isArray(item.content)) {
-    return item.content.map((part) => normalizeCodexMessageContentPart(part, role));
+    return item.content.map((part) => normalizeCodexMessageContentPart(part, role, contentMode));
   }
   if (typeof item.content === "string") {
-    return [{ type: textPartTypeForRole(role), text: item.content }];
+    return [{ type: textPartTypeForRole(role, contentMode), text: item.content }];
   }
   if (typeof item.text === "string") {
-    return [{ type: textPartTypeForRole(role), text: item.text }];
+    return [{ type: textPartTypeForRole(role, contentMode), text: item.text }];
   }
   return [];
 }
 
-function normalizeCodexResponsesInputItem(itemValue: unknown): unknown {
+function normalizeCodexResponsesInputItem(
+  itemValue: unknown,
+  contentMode: CodexResponsesInputNormalizationOptions["contentMode"]
+): unknown {
   if (typeof itemValue === "string") {
     return { type: "message", role: "user", content: [{ type: "input_text", text: itemValue }] };
   }
@@ -38,29 +65,38 @@ function normalizeCodexResponsesInputItem(itemValue: unknown): unknown {
   const type = typeof item.type === "string" ? item.type : "";
 
   if (!type && item.content === undefined && typeof item.text === "string") {
-    return { type: "message", role, content: [{ type: textPartTypeForRole(role), text: item.text }] };
+    return {
+      type: "message",
+      role,
+      content: [{ type: textPartTypeForRole(role, contentMode), text: item.text }],
+    };
   }
 
   if (!type && role) item.type = "message";
   if (item.type === "message" || (!type && item.content !== undefined)) {
     item.role = role;
-    item.content = buildCodexMessageContent(item, role);
+    item.content = buildCodexMessageContent(item, role, contentMode);
     item.type = "message";
   }
 
   return item;
 }
 
-export function normalizeCodexResponsesInput(body: JsonRecord): void {
+export function normalizeCodexResponsesInput(
+  body: JsonRecord,
+  options: CodexResponsesInputNormalizationOptions = {}
+): void {
+  const { contentMode = "standard" } = options;
   if (Array.isArray(body.input)) {
-    body.input = body.input.map(normalizeCodexResponsesInputItem);
+    body.input = body.input.map((item) => normalizeCodexResponsesInputItem(item, contentMode));
     return;
   }
 
   // undefined → leave as-is; null → empty list (not [null], which would surface a bogus
   // item downstream); anything else → wrap the single item.
   if (body.input === undefined) return;
-  body.input = body.input === null ? [] : [normalizeCodexResponsesInputItem(body.input)];
+  body.input =
+    body.input === null ? [] : [normalizeCodexResponsesInputItem(body.input, contentMode)];
 }
 
 function normalizeResponsesInputItemForChat(value: unknown): unknown {

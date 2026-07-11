@@ -87,15 +87,13 @@ test("Codex helper functions isolate rate-limit scopes and parse quota headers",
   assert.equal(getCodexUpstreamModel("gpt-5.5-xhigh"), "gpt-5.5");
   assert.equal(getCodexUpstreamModel("gpt-5.5-medium"), "gpt-5.5");
   // With mock WS transport + codexTransport=websocket, gpt-5.5 models require WS
-  __setCodexWebSocketTransportForTesting(
-    async (): Promise<MockCodexWebSocket> => ({
-      send() {},
-      close() {},
-      onmessage: null,
-      onerror: null,
-      onclose: null,
-    })
-  );
+  __setCodexWebSocketTransportForTesting(async (): Promise<MockCodexWebSocket> => ({
+    send() {},
+    close() {},
+    onmessage: null,
+    onerror: null,
+    onclose: null,
+  }));
   assert.equal(
     isCodexResponsesWebSocketRequired("gpt-5.5-xhigh", {
       providerSpecificData: { codexTransport: "websocket" },
@@ -185,10 +183,10 @@ test("CodexExecutor.buildHeaders binds workspace ids and disables SSE accept for
   assert.equal(standardHeaders.Authorization, "Bearer codex-token");
   assert.equal(standardHeaders.Accept, "text/event-stream");
   assert.equal(standardHeaders["chatgpt-account-id"], "workspace-1");
-  assert.equal(standardHeaders.Version, "0.142.0");
+  assert.equal(standardHeaders.Version, "0.144.0");
   assert.equal(standardHeaders["Openai-Beta"], "responses=experimental");
   assert.equal(standardHeaders["X-Codex-Beta-Features"], "responses_websockets");
-  assert.equal(standardHeaders["User-Agent"], "codex-cli/0.142.0 (Windows 10.0.26200; x64)");
+  assert.equal(standardHeaders["User-Agent"], "codex-cli/0.144.0 (Windows 10.0.26200; x64)");
   assert.equal(compactHeaders.Accept, "application/json");
 });
 
@@ -214,7 +212,7 @@ test("CodexExecutor.buildHeaders honors safe env overrides for Version and User-
     },
     () => {
       const headers = executor.buildHeaders({ accessToken: "codex-token" }, true);
-      assert.equal(headers.Version, "0.142.0");
+      assert.equal(headers.Version, "0.144.0");
       assert.equal(headers["User-Agent"], "custom-codex/9.9.9");
     }
   );
@@ -321,7 +319,7 @@ test("CodexExecutor.transformRequest non-passthrough allowlist strips all residu
   assert.equal(result._internal_marker, undefined, "internal markers should be stripped");
 });
 
-test("CodexExecutor.transformRequest normalizes max reasoning_effort to xhigh", () => {
+test("CodexExecutor.transformRequest clamps GPT-5.5 max reasoning_effort to xhigh", () => {
   const executor = new CodexExecutor();
   const result = executor.transformRequest(
     "gpt-5.5",

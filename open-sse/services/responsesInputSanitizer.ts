@@ -1,6 +1,7 @@
 type JsonRecord = Record<string, unknown>;
 type SanitizeResponsesInputOptions = {
   dropInternalAssistantMessages?: boolean;
+  contentMode?: "standard" | "responses-lite";
 };
 const INTERNAL_ASSISTANT_PHASES = new Set(["commentary"]);
 const SERVER_ITEM_ID_PREFIX_BY_TYPE: Record<string, string> = {
@@ -61,13 +62,17 @@ function imageUrlToText(value: unknown): string {
   return typeof record?.url === "string" ? record.url : "";
 }
 
-function sanitizeContentPart(part: unknown, role: string): unknown {
+function sanitizeContentPart(
+  part: unknown,
+  role: string,
+  contentMode: SanitizeResponsesInputOptions["contentMode"]
+): unknown {
   const record = toRecord(part);
   if (!record) return part;
 
   if (record.type === "image_url") {
     const url = imageUrlToText(record.image_url);
-    if (role === "user") {
+    if (role === "user" || contentMode === "responses-lite") {
       const next: JsonRecord = { type: "input_image", image_url: url };
       const image = toRecord(record.image_url);
       if (image?.detail !== undefined) next.detail = image.detail;
@@ -76,7 +81,7 @@ function sanitizeContentPart(part: unknown, role: string): unknown {
     return { type: "output_text", text: url ? `[Image: ${url}]` : "[Image]" };
   }
 
-  if (role === "assistant" && record.type === "input_image") {
+  if (role === "assistant" && record.type === "input_image" && contentMode !== "responses-lite") {
     const url = imageUrlToText(record.image_url);
     return { type: "output_text", text: url ? `[Image: ${url}]` : "[Image]" };
   }
@@ -84,11 +89,14 @@ function sanitizeContentPart(part: unknown, role: string): unknown {
   return part;
 }
 
-function sanitizeMessageContent(record: JsonRecord): JsonRecord {
+function sanitizeMessageContent(
+  record: JsonRecord,
+  contentMode: SanitizeResponsesInputOptions["contentMode"]
+): JsonRecord {
   if (!Array.isArray(record.content)) return record;
 
   const role = typeof record.role === "string" ? record.role.toLowerCase() : "";
-  const content = record.content.map((part) => sanitizeContentPart(part, role));
+  const content = record.content.map((part) => sanitizeContentPart(part, role, contentMode));
   return { ...record, content };
 }
 
@@ -100,17 +108,20 @@ function sanitizeOutputContent(record: JsonRecord): JsonRecord {
   // against output content part types, so legacy Chat-style `image_url` parts
   // must be normalized here too, not only in message.content.
   const role = record.type === "function_call_output" ? "user" : "assistant";
-  const output = record.output.map((part) => sanitizeContentPart(part, role));
+  const output = record.output.map((part) => sanitizeContentPart(part, role, "standard"));
   return { ...record, output };
 }
 
-function sanitizeInputItem(item: unknown): unknown {
+function sanitizeInputItem(
+  item: unknown,
+  contentMode: SanitizeResponsesInputOptions["contentMode"]
+): unknown {
   const record = toRecord(item);
   if (!record) return item;
 
   let next = sanitizeInputItemId(record);
   if (isResponsesMessageItem(next)) {
-    next = sanitizeMessageContent(next);
+    next = sanitizeMessageContent(next, contentMode);
   }
   next = sanitizeOutputContent(next);
   if (
@@ -129,6 +140,7 @@ export function sanitizeResponsesInputItems(
   options: SanitizeResponsesInputOptions = {}
 ): unknown[] {
   const dropInternalAssistantMessages = options.dropInternalAssistantMessages ?? true;
+  const contentMode = options.contentMode ?? "standard";
   const sanitized: unknown[] = [];
 
   for (const item of items) {
@@ -138,7 +150,7 @@ export function sanitizeResponsesInputItems(
     }
 
     const cloned = clone ? structuredClone(item) : item;
-    sanitized.push(sanitizeInputItem(cloned));
+    sanitized.push(sanitizeInputItem(cloned, contentMode));
   }
 
   return sanitized;

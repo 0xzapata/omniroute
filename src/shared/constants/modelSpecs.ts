@@ -66,6 +66,30 @@ const AUTHORITATIVE_PROVIDER_CONTEXT_WINDOWS = new Map<string, number>([
 ]);
 
 export const MODEL_SPECS: Record<string, ModelSpec> = {
+  "gpt-5.6-sol": {
+    contextWindow: 372000,
+    supportsThinking: true,
+    supportsTools: true,
+    supportsVision: true,
+    aliases: ["gpt-5.6", "openai/gpt-5.6-sol", "openai/gpt-5.6"],
+  },
+
+  "gpt-5.6-terra": {
+    contextWindow: 372000,
+    supportsThinking: true,
+    supportsTools: true,
+    supportsVision: true,
+    aliases: ["openai/gpt-5.6-terra"],
+  },
+
+  "gpt-5.6-luna": {
+    contextWindow: 372000,
+    supportsThinking: true,
+    supportsTools: true,
+    supportsVision: true,
+    aliases: ["openai/gpt-5.6-luna"],
+  },
+
   "gpt-5.5": {
     maxOutputTokens: 128000,
     contextWindow: 1050000,
