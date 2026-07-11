@@ -127,6 +127,9 @@ function splitCodexReasoningSuffix(model: unknown): {
 } {
   const modelId = typeof model === "string" ? model : "";
   for (const level of EFFORT_ORDER) {
+    if ((level === "max" || level === "ultra") && !modelId.startsWith("gpt-5.6")) {
+      continue;
+    }
     if (modelId.endsWith(`-${level}`)) {
       return {
         baseModel: modelId.slice(0, -`-${level}`.length),
@@ -1064,13 +1067,15 @@ export class CodexExecutor extends BaseExecutor {
       }));
     }
 
-    normalizeCodexResponsesInput(body, {
-      contentMode: usesCodexResponsesLiteInput(body.model ?? model) ? "responses-lite" : "standard",
-    });
+    const codexInputContentMode = usesCodexResponsesLiteInput(body.model ?? model)
+      ? "responses-lite"
+      : "standard";
+    normalizeCodexResponsesInput(body, { contentMode: codexInputContentMode });
 
     if (Array.isArray(body.input)) {
       body.input = sanitizeResponsesInputItems(body.input, false, {
         dropInternalAssistantMessages: !nativeCodexPassthrough,
+        contentMode: codexInputContentMode,
       });
     }
     repairMissingCodexFunctionCallOutputs(body);

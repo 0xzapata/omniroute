@@ -86,6 +86,7 @@ test("Codex helper functions isolate rate-limit scopes and parse quota headers",
   assert.equal(getCodexModelScope("gpt-5.5-xhigh"), "codex");
   assert.equal(getCodexUpstreamModel("gpt-5.5-xhigh"), "gpt-5.5");
   assert.equal(getCodexUpstreamModel("gpt-5.5-medium"), "gpt-5.5");
+  assert.equal(getCodexUpstreamModel("gpt-5.1-codex-max"), "gpt-5.1-codex-max");
   // With mock WS transport + codexTransport=websocket, gpt-5.5 models require WS
   __setCodexWebSocketTransportForTesting(async (): Promise<MockCodexWebSocket> => ({
     send() {},
@@ -561,6 +562,11 @@ test("CodexExecutor.transformRequest adapts GPT-5.6 assistant history for Respon
               logprobs: [],
               obfuscation: "opaque",
             },
+            { type: "input_image", image_url: "https://example.com/assistant.png" },
+            {
+              type: "image_url",
+              image_url: { url: "https://example.com/legacy-assistant.png", detail: "high" },
+            },
             { type: "scoped_content", scope: "conversation", content: "preserve" },
           ],
         },
@@ -580,6 +586,12 @@ test("CodexExecutor.transformRequest adapts GPT-5.6 assistant history for Respon
     role: "assistant",
     content: [
       { type: "input_text", text: "Previous answer" },
+      { type: "input_image", image_url: "https://example.com/assistant.png" },
+      {
+        type: "input_image",
+        image_url: "https://example.com/legacy-assistant.png",
+        detail: "high",
+      },
       { type: "scoped_content", scope: "conversation", content: "preserve" },
     ],
   });
@@ -811,6 +823,18 @@ test("CodexExecutor.transformRequest keeps gpt-5.5 as the model and applies xhig
 
   assert.equal(result.model, "gpt-5.5");
   assert.equal(result.reasoning.effort, "xhigh");
+});
+
+test("CodexExecutor.transformRequest preserves the literal gpt-5.1-codex-max model id", () => {
+  const executor = new CodexExecutor();
+  const result = executor.transformRequest(
+    "gpt-5.1-codex-max",
+    { model: "gpt-5.1-codex-max", input: [] },
+    false,
+    {}
+  );
+
+  assert.equal(result.model, "gpt-5.1-codex-max");
 });
 
 test("CodexExecutor.transformRequest keeps GPT 5.3 Codex reasoning in Responses shape", () => {
