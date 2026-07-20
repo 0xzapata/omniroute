@@ -19,7 +19,7 @@ import {
   type PreflightQuotaThresholds,
   type QuotaInfo,
 } from "../quotaPreflight.ts";
-import { getProviderConnectionById } from "../../../src/lib/db/providers";
+import { getCachedProviderConnectionById } from "@/lib/localDb";
 import {
   resolveResilienceSettings,
   type ResilienceSettings,
@@ -108,9 +108,8 @@ export async function resolveQuotaExhaustionCutoffForTarget(
 
   let connection: Record<string, unknown> | undefined;
   try {
-    connection = (await getProviderConnectionById(connectionId)) as
-      | Record<string, unknown>
-      | undefined;
+    connection = (await getCachedProviderConnectionById(connectionId)) as
+      Record<string, unknown> | undefined;
   } catch {
     connection = undefined;
   }
