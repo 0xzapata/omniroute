@@ -60,8 +60,10 @@ ENV OMNIROUTE_USE_TURBOPACK=0
 # more than V8's default ceiling (~2 GB) for a codebase this size; a memory-constrained
 # Docker build otherwise dies with "JavaScript heap out of memory" (#4076). Build-only;
 # the runtime heap is set separately on the runner stage (OMNIROUTE_MEMORY_MB).
-# Override for hosts with more/less RAM: `--build-arg OMNIROUTE_BUILD_MEMORY_MB=6144`.
-ARG OMNIROUTE_BUILD_MEMORY_MB=4096
+# Override for hosts with more/less RAM: `--build-arg OMNIROUTE_BUILD_MEMORY_MB=8192`.
+# Default raised from 4096 -> 8192 after the v3.8.49 zeabur build OOM'd on the fork's
+# merged codebase (run 29724097623); GitHub Actions ubuntu-latest runners have 16 GB.
+ARG OMNIROUTE_BUILD_MEMORY_MB=8192
 ENV NODE_OPTIONS="--max-old-space-size=${OMNIROUTE_BUILD_MEMORY_MB}"
 
 COPY . ./
