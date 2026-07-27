@@ -184,3 +184,55 @@ test("provider models route returns 400 for unknown provider", async () => {
   assert.equal(response.status, 400);
   assert.equal(body.error.code, "invalid_provider");
 });
+
+test("provider models route resolves local provider by canonical ID (ollama-local)", async () => {
+  const response = await providerModelsRoute.GET(
+    new Request("http://localhost/api/v1/providers/ollama-local/models"),
+    {
+      params: Promise.resolve({ provider: "ollama-local" }),
+    }
+  );
+
+  // Must NOT return 400 invalid_provider — should resolve via catalog fallback
+  assert.notEqual(response.status, 400, "ollama-local must not return 400");
+  const body = (await response.json()) as ProviderModelsResponse;
+  assert.notEqual(
+    body.error?.code,
+    "invalid_provider",
+    "ollama-local must not be rejected as unknown provider"
+  );
+});
+
+test("provider models route resolves local provider by alias (ollama)", async () => {
+  const response = await providerModelsRoute.GET(
+    new Request("http://localhost/api/v1/providers/ollama/models"),
+    {
+      params: Promise.resolve({ provider: "ollama" }),
+    }
+  );
+
+  assert.notEqual(response.status, 400, "ollama (alias) must not return 400");
+  const body = (await response.json()) as ProviderModelsResponse;
+  assert.notEqual(
+    body.error?.code,
+    "invalid_provider",
+    "ollama (alias) must not be rejected as unknown provider"
+  );
+});
+
+test("provider models route resolves another local provider by ID (lm-studio)", async () => {
+  const response = await providerModelsRoute.GET(
+    new Request("http://localhost/api/v1/providers/lm-studio/models"),
+    {
+      params: Promise.resolve({ provider: "lm-studio" }),
+    }
+  );
+
+  assert.notEqual(response.status, 400, "lm-studio must not return 400");
+  const body = (await response.json()) as ProviderModelsResponse;
+  assert.notEqual(
+    body.error?.code,
+    "invalid_provider",
+    "lm-studio must not be rejected as unknown provider"
+  );
+});

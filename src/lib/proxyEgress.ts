@@ -13,7 +13,10 @@
  * entering and leaving by.
  */
 import { request as undiciRequest } from "undici";
-import { createProxyDispatcher, proxyConfigToUrl } from "@omniroute/open-sse/utils/proxyDispatcher.ts";
+import {
+  createProxyDispatcher,
+  proxyConfigToUrl,
+} from "@omniroute/open-sse/utils/proxyDispatcher.ts";
 import { rotationGroupFor } from "@omniroute/open-sse/services/refreshSerializer.ts";
 
 const EGRESS_ECHO_URL = "https://api64.ipify.org?format=json";
@@ -79,9 +82,13 @@ export function clearEgressCache(): void {
  * echo-IP round-trip. Returns null if not yet probed.
  */
 export function getCachedEgressIp(proxyUrl: string | null): string | null {
-  const cached = egressCache.get(proxyUrl ?? "__direct__");
+  const key = proxyUrl ?? "__direct__";
+  const cached = egressCache.get(key);
   if (!cached) return null;
-  if (Date.now() - cached.at >= EGRESS_CACHE_TTL_MS) return null;
+  if (Date.now() - cached.at >= EGRESS_CACHE_TTL_MS) {
+    egressCache.delete(key);
+    return null;
+  }
   return cached.ip;
 }
 
@@ -191,9 +198,7 @@ export async function diagnoseAllEgressIps(deps?: {
   getConnections?: () => Promise<
     Array<{ id: string; provider: string; name?: string; email?: string; authType?: string }>
   >;
-  resolveProxy?: (
-    connectionId: string
-  ) => Promise<{ proxy?: unknown; level?: string } | null>;
+  resolveProxy?: (connectionId: string) => Promise<{ proxy?: unknown; level?: string } | null>;
 }): Promise<EgressDiagnostic> {
   const getConnections =
     deps?.getConnections ??
@@ -262,15 +267,28 @@ export interface ProxyValidationResult {
  */
 export async function validateProxyPool(deps?: {
   listProxies?: () => Promise<
-    Array<{ id: string; type: string; host: string; port: number | string; username?: string | null; password?: string | null; status?: string | null }>
+    Array<{
+      id: string;
+      type: string;
+      host: string;
+      port: number | string;
+      username?: string | null;
+      password?: string | null;
+      status?: string | null;
+    }>
   >;
-  markStatus?: (id: string, status: string, meta: { latencyMs: number; egressIp: string | null }) => Promise<void>;
+  markStatus?: (
+    id: string,
+    status: string,
+    meta: { latencyMs: number; egressIp: string | null }
+  ) => Promise<void>;
 }): Promise<ProxyValidationResult[]> {
   const listProxies =
     deps?.listProxies ??
     (async () => {
       const { listProxies: real } = await import("./db/proxies");
-      return (await real({ includeSecrets: true })) as Array<{
+      const result = await real({ includeSecrets: true });
+      return result.items as Array<{
         id: string;
         type: string;
         host: string;
@@ -346,7 +364,11 @@ export function planProxyDistribution(
       return;
     }
     if (opts.allowSharing) {
-      assignments.push({ connectionId: c.id, account, proxyId: liveProxyIds[i % liveProxyIds.length] });
+      assignments.push({
+        connectionId: c.id,
+        account,
+        proxyId: liveProxyIds[i % liveProxyIds.length],
+      });
     } else if (i < liveProxyIds.length) {
       assignments.push({ connectionId: c.id, account, proxyId: liveProxyIds[i] });
     } else {

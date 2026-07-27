@@ -183,8 +183,8 @@ Combo: "free-forever"
   Compression Combo: "coding-agent-stack"
   Pipeline: RTK -> Caveman
   Targets:
-    1. if/kimi-k2-thinking
-    2. qw/qwen3-coder-plus
+    1. if/kimi-k2.7-code
+    2. if/qwen3.8-max-preview
 ```
 
 This lets you use stacked compression on free/coding providers while keeping lite mode on paid

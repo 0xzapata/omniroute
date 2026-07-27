@@ -134,7 +134,11 @@ export async function runServe(opts = {}) {
     "Release",
     "better_sqlite3.node"
   );
-  if (existsSync(sqliteBinary) && !isNativeBinaryCompatible(sqliteBinary)) {
+  if (
+    !process.versions.bun &&
+    existsSync(sqliteBinary) &&
+    !isNativeBinaryCompatible(sqliteBinary)
+  ) {
     console.error(
       "\x1b[31m✖ better-sqlite3 native module is incompatible with this platform.\x1b[0m"
     );
@@ -221,12 +225,16 @@ export async function runServe(opts = {}) {
 function runDaemon(serverJs, env, memoryLimit, dashboardPort, apiPort) {
   // #5238: skip the explicit CLI --max-old-space-size when the user pinned the
   // heap via NODE_OPTIONS (a CLI arg would shadow/override their value).
-  const server = spawn("node", [...buildNodeHeapArgs(process.env, memoryLimit), serverJs], {
-    cwd: APP_DIR,
-    env,
-    stdio: "ignore",
-    detached: true,
-  });
+  const server = spawn(
+    process.versions.bun ? process.execPath : "node",
+    [...(process.versions.bun ? [] : buildNodeHeapArgs(process.env, memoryLimit)), serverJs],
+    {
+      cwd: APP_DIR,
+      env,
+      stdio: "ignore",
+      detached: true,
+    }
+  );
   writePidFile("server", server.pid);
   server.unref();
   console.log(`\x1b[32m✔ OmniRoute started in background (PID: ${server.pid})\x1b[0m`);
@@ -237,11 +245,15 @@ function runDaemon(serverJs, env, memoryLimit, dashboardPort, apiPort) {
 function runWithoutRecovery(serverJs, env, memoryLimit, dashboardPort, apiPort, noOpen, startedAt) {
   // #5238: skip the explicit CLI --max-old-space-size when the user pinned the
   // heap via NODE_OPTIONS (a CLI arg would shadow/override their value).
-  const server = spawn("node", [...buildNodeHeapArgs(process.env, memoryLimit), serverJs], {
-    cwd: APP_DIR,
-    env,
-    stdio: "pipe",
-  });
+  const server = spawn(
+    process.versions.bun ? process.execPath : "node",
+    [...(process.versions.bun ? [] : buildNodeHeapArgs(process.env, memoryLimit)), serverJs],
+    {
+      cwd: APP_DIR,
+      env,
+      stdio: "pipe",
+    }
+  );
 
   writePidFile("server", server.pid);
 

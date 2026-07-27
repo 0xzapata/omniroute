@@ -48,13 +48,23 @@ RUN test -f package-lock.json   || (echo "package-lock.json is required for repr
 # node-gyp comes from npm's own bundled copy (deterministic, already in the image)
 # instead of `npx --yes`, which would install an arbitrary registry version
 # on-demand and run its lifecycle scripts (Sonar docker:S6505).
-RUN --mount=type=cache,target=/root/.npm   npm ci --no-audit --no-fund --legacy-peer-deps --ignore-scripts   && cd node_modules/better-sqlite3 && node /usr/local/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js rebuild   && test -f build/Release/better_sqlite3.node   && cd /app && node -e "require('better-sqlite3')(':memory:').close()"
+RUN --mount=type=cache,id=npm-cache,target=/root/.npm \
+  npm ci --no-audit --no-fund --legacy-peer-deps --ignore-scripts \
+  && (cd node_modules/better-sqlite3 \
+      && node /usr/local/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js rebuild) \
+  && node -e "require('better-sqlite3')(':memory:').close()" \
+  && node node_modules/tls-client-node/scripts/postinstall.js \
+  && (test -n "$(find node_modules/tls-client-node/bin -mindepth 1 -print -quit 2>/dev/null)" \
+      || (echo "tls-client-node native binary missing after postinstall" >&2 && exit 1))
 
 # Build with webpack (stable). Turbopack hit a non-recoverable internal panic on this
 # Next.js version during the v3.8.27 release build — TurbopackInternalError in
 # ImportTracer::get_traces. Webpack is the proven engine. Re-enable Turbopack (=1) once
 # the upstream tracer bug is fixed.
 ENV OMNIROUTE_USE_TURBOPACK=0
+
+# Docker cannot provide the host DNS/certificate access required by MITM/Agent Bridge.
+ENV OMNIROUTE_MITM_STUB=1
 
 # Raise the V8 heap ceiling for the build. The webpack production optimization pass needs
 # more than V8's default ceiling (~2 GB) for a codebase this size; a memory-constrained
@@ -108,6 +118,9 @@ COPY --from=builder /app/node_modules/split2 ./node_modules/split2
 COPY --from=builder /app/src/lib/db/migrations ./migrations
 ENV OMNIROUTE_MIGRATIONS_DIR=/app/migrations
 
+# Healthcheck is not guaranteed to be traced into the standalone output.
+COPY --from=builder /app/scripts/dev/healthcheck.mjs ./healthcheck.mjs
+
 # Hand runtime paths to the baked-in `node` non-root user (UID/GID 1000) so the
 # app and mounted Zeabur data directory are writable without running as root.
 RUN mkdir -p /var/lib/omniroute   && chown -R node:node /app /var/lib/omniroute
@@ -145,13 +158,21 @@ FROM runner-base AS runner-web
 
 USER root
 
+COPY --from=builder /app/node_modules/playwright-core ./node_modules/playwright-core
+COPY --from=builder /app/node_modules/playwright ./node_modules/playwright
+
 # Install Playwright browser binaries + OS dependencies under root, then hand
 # ownership of the browsers cache to the node user.
 # PLAYWRIGHT_BROWSERS_PATH overrides the default ~/.cache/ms-playwright so the
 # browsers land under /home/node which persists across image layers and is
 # accessible to the non-root runtime user.
 ENV PLAYWRIGHT_BROWSERS_PATH=/home/node/.cache/ms-playwright
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked   --mount=type=cache,target=/var/lib/apt/lists,sharing=locked   apt-get update   && npx playwright install chromium --with-deps   && chown -R node:node /home/node/.cache   && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+  --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+  apt-get update \
+  && node node_modules/playwright/cli.js install chromium --with-deps \
+  && chown -R node:node /home/node/.cache \
+  && rm -rf /var/lib/apt/lists/*
 
 USER node
 

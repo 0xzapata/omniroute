@@ -11,8 +11,8 @@ CLI (Codex, Claude Code, OpenCode, Cline, …) to use OmniRoute as its backend �
 the tool talks to **one** endpoint and OmniRoute routes to the right provider with
 auto-fallback. Each command reads the **live** model catalog from a running
 OmniRoute (local or remote) and writes the tool's own config file on **your**
-machine. The API key is referenced by env var wherever the tool supports it, so the
-secret is never written to disk (the exceptions are noted below).
+machine. The API key is referenced by an environment variable wherever the tool
+supports it. Commands that persist a tool-local environment file are noted below.
 
 There are also two launchers — `omniroute launch` (Claude Code) and
 `omniroute launch-codex` (Codex) — that spawn the CLI with the right env injected,
@@ -35,22 +35,22 @@ Every command honours the **active context** (set with `omniroute connect`, see
 with `--remote` (or an active remote context) it fetches the catalog from that
 server and writes the config locally.
 
-| Command | Tool | What it writes | Key flags | Local vs remote |
-|---------|------|----------------|-----------|-----------------|
-| `omniroute setup-codex` | OpenAI Codex CLI | `~/.codex/<name>.config.toml` — one profile per compatible text model (`codex --profile <name>`) | `--remote` `--api-key` `--only` `--dry-run` `--port` `--codex-home` | Both |
-| `omniroute setup-claude` | Claude Code | `~/.claude/profiles/<name>/settings.json` — one profile per matched model (`CLAUDE_CONFIG_DIR`) | `--remote` `--api-key` `--only` `--dry-run` `--port` `--claude-home` | Both |
-| `omniroute setup-opencode` | OpenCode (openai-compatible) | `~/.config/opencode/opencode.json` — `omniroute` provider with every catalog model (`opencode -m omniroute/<model>`) | `--remote` `--api-key` `--only` `--model` `--dry-run` `--port` | Both |
-| `omniroute setup-cline` | Cline | `~/.cline/data/{globalState,secrets}.json` (CLI mode) + prints VS Code extension settings | `--remote` `--api-key` `--model` `--yes` `--dry-run` `--port` `--cline-dir` | Both |
-| `omniroute setup-kilo` | Kilo Code | `~/.local/share/kilo/auth.json` (CLI) + merges `kilocode.*` into VS Code `settings.json` if present | `--remote` `--api-key` `--model` `--yes` `--dry-run` `--port` `--auth-path` `--vscode-settings` | Both |
-| `omniroute setup-continue` | Continue / `cn` CLI | `~/.continue/config.yaml` — `provider: openai` models, key via `${{ secrets.OMNIROUTE_API_KEY }}` | `--remote` `--api-key` `--only` `--dry-run` `--port` `--config-path` | Both |
-| `omniroute setup-cursor` | Cursor | Nothing — prints the in-app steps (Cursor config is opaque SQLite) | `--remote` `--api-key` `--only` `--port` | Both |
-| `omniroute setup-roo` | Roo Code | `~/.omniroute/roo-settings.json` (import doc) + sets `roo-cline.autoImportSettingsPath` if a VS Code `settings.json` exists | `--remote` `--api-key` `--model` `--yes` `--dry-run` `--port` `--import-path` `--vscode-settings` | Both |
-| `omniroute setup-crush` | Crush | `~/.config/crush/crush.json` — `openai-compat` provider, key via `$OMNIROUTE_API_KEY` | `--remote` `--api-key` `--only` `--dry-run` `--port` `--config-path` | Both |
-| `omniroute setup-goose` | Goose | `~/.config/goose/config.yaml` (`GOOSE_PROVIDER`/`OPENAI_HOST`/`GOOSE_MODEL`) + prints env recipe | `--remote` `--api-key` `--model` `--yes` `--dry-run` `--port` `--config-path` | Both |
-| `omniroute setup-qwen` | Qwen Code | `~/.qwen/settings.json` — openai `modelProvider`, key via `envKey` (`OMNIROUTE_API_KEY`) | `--remote` `--api-key` `--model` `--yes` `--dry-run` `--port` `--config-path` | Both |
-| `omniroute setup-aider` | Aider | `~/.aider.conf.yml` (`openai-api-base` + `model: openai/<id>`) + prints env recipe | `--remote` `--api-key` `--model` `--yes` `--dry-run` `--port` `--config-path` | Both |
-| `omniroute launch` | Claude Code | Nothing — spawns `claude` with `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN` injected | `--remote` `--api-key` `--token` `--profile` `--port` | Both |
-| `omniroute launch-codex` | OpenAI Codex CLI | Nothing — spawns `codex` with the `omniroute` provider injected via `-c` flags | `--remote` `--api-key` `--profile` (`-p`) `--port` | Both |
+| Command                    | Tool                         | What it writes                                                                                                              | Key flags                                                                                         | Local vs remote |
+| -------------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | --------------- |
+| `omniroute setup-codex`    | OpenAI Codex CLI             | `~/.codex/<name>.config.toml` — one profile per compatible text model (`codex --profile <name>`)                            | `--remote` `--api-key` `--only` `--dry-run` `--port` `--codex-home`                               | Both            |
+| `omniroute setup-claude`   | Claude Code                  | `~/.claude/profiles/<name>/settings.json` — one profile per matched model (`CLAUDE_CONFIG_DIR`)                             | `--remote` `--api-key` `--only` `--dry-run` `--port` `--claude-home`                              | Both            |
+| `omniroute setup-opencode` | OpenCode (openai-compatible) | `~/.config/opencode/opencode.json` — `omniroute` provider with every catalog model (`opencode -m omniroute/<model>`)        | `--remote` `--api-key` `--only` `--model` `--dry-run` `--port`                                    | Both            |
+| `omniroute setup-cline`    | Cline                        | `~/.cline/data/{globalState,secrets}.json` (CLI mode) + prints VS Code extension settings                                   | `--remote` `--api-key` `--model` `--yes` `--dry-run` `--port` `--cline-dir`                       | Both            |
+| `omniroute setup-kilo`     | Kilo Code                    | `~/.local/share/kilo/auth.json` (CLI) + merges `kilocode.*` into VS Code `settings.json` if present                         | `--remote` `--api-key` `--model` `--yes` `--dry-run` `--port` `--auth-path` `--vscode-settings`   | Both            |
+| `omniroute setup-continue` | Continue / `cn` CLI          | `~/.continue/config.yaml` — `provider: openai` models, key via `${{ secrets.OMNIROUTE_API_KEY }}`                           | `--remote` `--api-key` `--only` `--dry-run` `--port` `--config-path`                              | Both            |
+| `omniroute setup-cursor`   | Cursor                       | Nothing — prints the in-app steps (Cursor config is opaque SQLite)                                                          | `--remote` `--api-key` `--only` `--port`                                                          | Both            |
+| `omniroute setup-roo`      | Roo Code                     | `~/.omniroute/roo-settings.json` (import doc) + sets `roo-cline.autoImportSettingsPath` if a VS Code `settings.json` exists | `--remote` `--api-key` `--model` `--yes` `--dry-run` `--port` `--import-path` `--vscode-settings` | Both            |
+| `omniroute setup-crush`    | Crush                        | `~/.config/crush/crush.json` — `openai-compat` provider, key via `$OMNIROUTE_API_KEY`                                       | `--remote` `--api-key` `--only` `--dry-run` `--port` `--config-path`                              | Both            |
+| `omniroute setup-goose`    | Goose                        | `~/.config/goose/config.yaml` (`GOOSE_PROVIDER`/`OPENAI_HOST`/`GOOSE_MODEL`) + prints env recipe                            | `--remote` `--api-key` `--model` `--yes` `--dry-run` `--port` `--config-path`                     | Both            |
+| `omniroute setup-aider`    | Aider                        | `~/.aider.conf.yml` (`openai-api-base` + `model: openai/<id>`) + prints env recipe                                          | `--remote` `--api-key` `--model` `--yes` `--dry-run` `--port` `--config-path`                     | Both            |
+| `omniroute setup-qwen`     | Qwen Code                    | `~/.qwen/settings.json` — V4 `modelProviders.openai` array + `OMNIROUTE_API_KEY` in `~/.qwen/.env`                          | `--remote` `--api-key` `--model` `--yes` `--dry-run` `--port` `--config-path` `--env-path`        | Both            |
+| `omniroute launch`         | Claude Code                  | Nothing — spawns `claude` with `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN` injected                                         | `--remote` `--api-key` `--token` `--profile` `--port`                                             | Both            |
+| `omniroute launch-codex`   | OpenAI Codex CLI             | Nothing — spawns `codex` with the `omniroute` provider injected via `-c` flags                                              | `--remote` `--api-key` `--profile` (`-p`) `--port`                                                | Both            |
 
 Notes on flags (verified in the command source):
 
@@ -101,7 +101,7 @@ opencode -m omniroute/glm/glm-5.2 "..."
 
 # Tools without auto-discovery need an explicit model:
 omniroute setup-aider --model glm/glm-5.2
-omniroute setup-qwen  --model kmc/kimi-k2.7
+omniroute setup-qwen --model qwen/qwen3.8-max-preview
 
 # Preview without writing anything:
 omniroute setup-continue --dry-run
@@ -156,14 +156,15 @@ OmniRoute exposes the OpenAI surface at `/v1`, the Anthropic surface at the root
 and a native Gemini surface at `/v1beta`. Each integration is wired to the form its
 tool expects (verified in the command source):
 
-| Integration | Base URL written | `/v1`? |
-|-------------|------------------|--------|
-| `setup-cline` (`openAiBaseUrl`) | root | No — Cline appends `/v1/chat/completions` |
-| `setup-goose` (`OPENAI_HOST`) | root | No — Goose appends the path |
-| `setup-aider` (`OPENAI_API_BASE`) | root | No — LiteLLM appends `/v1/chat/completions` |
-| `setup-kilo`, `setup-roo`, `setup-continue`, `setup-crush`, `setup-qwen`, `setup-cursor` | with `/v1` | Yes |
-| `setup-claude` (`ANTHROPIC_BASE_URL`), `launch` | root | No — Claude Code appends `/v1/messages` |
-| `setup-codex`, `launch-codex` (`model_providers.omniroute.base_url`) | with `/v1` | Yes |
+| Integration                                                                | Base URL written | `/v1`?                                      |
+| -------------------------------------------------------------------------- | ---------------- | ------------------------------------------- |
+| `setup-cline` (`openAiBaseUrl`)                                            | root             | No — Cline appends `/v1/chat/completions`   |
+| `setup-goose` (`OPENAI_HOST`)                                              | root             | No — Goose appends the path                 |
+| `setup-aider` (`OPENAI_API_BASE`)                                          | root             | No — LiteLLM appends `/v1/chat/completions` |
+| `setup-kilo`, `setup-roo`, `setup-continue`, `setup-crush`, `setup-cursor` | with `/v1`       | Yes                                         |
+| `setup-claude` (`ANTHROPIC_BASE_URL`), `launch`                            | root             | No — Claude Code appends `/v1/messages`     |
+| `setup-codex`, `launch-codex` (`model_providers.omniroute.base_url`)       | with `/v1`       | Yes                                         |
+| `setup-qwen` (`modelProviders.openai[].baseUrl`)                           | with `/v1`       | Yes                                         |
 
 ---
 

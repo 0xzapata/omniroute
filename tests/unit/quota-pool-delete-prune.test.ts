@@ -23,8 +23,7 @@ import path from "node:path";
 // ── DB harness (same pattern as quota-exclusivity-reconcile.test.ts) ─────────
 const TEST_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "omniroute-pool-delete-prune-"));
 process.env.DATA_DIR = TEST_DATA_DIR;
-process.env.API_KEY_SECRET =
-  process.env.API_KEY_SECRET || "delete-prune-test-secret-32chars!!";
+process.env.API_KEY_SECRET = process.env.API_KEY_SECRET || "delete-prune-test-secret-32chars!!";
 
 const core = await import("../../src/lib/db/core.ts");
 const poolsDb = await import("../../src/lib/db/quotaPools.ts");
@@ -62,9 +61,8 @@ test.after(async () => {
 // ── Helper: get allowed_quotas for a key by id from DB ───────────────────────
 function getAllowedQuotasById(keyId: string): string[] {
   const db = core.getDbInstance();
-  const row = (db as any)
-    .prepare("SELECT allowed_quotas FROM api_keys WHERE id = ?")
-    .get(keyId) as { allowed_quotas: string } | undefined;
+  const row = (db as any).prepare("SELECT allowed_quotas FROM api_keys WHERE id = ?").get(keyId) as
+    { allowed_quotas: string } | undefined;
   if (!row) return [];
   try {
     const parsed = JSON.parse(row.allowed_quotas ?? "[]");
@@ -186,7 +184,7 @@ test("deletePool removes pool and allocation rows from DB", () => {
   poolsDb.deletePool(pool.id);
 
   assert.equal(poolsDb.getPool(pool.id), null, "getPool should return null after delete");
-  const allPools = poolsDb.listPools();
+  const { items: allPools } = poolsDb.listPools();
   assert.ok(
     !allPools.some((p) => p.id === pool.id),
     "listPools should not contain the deleted pool"

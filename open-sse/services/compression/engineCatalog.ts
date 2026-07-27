@@ -82,6 +82,19 @@ export const ENGINE_CATALOG: Record<string, EngineMeta> = {
       cacheImpact: "moderate",
     },
   },
+  "codex-responses": {
+    id: "codex-responses",
+    label: "Responses Tool Output",
+    stackPriority: 12,
+    isSingleMode: true,
+    description: "Conservative compression for supported Responses tool outputs.",
+    guidance: {
+      tradeoffs:
+        "Lossless-first JSON and bounded diagnostic compression for shell, patch, search, and build outputs. Protected tools and uncertain shapes pass through unchanged.",
+      lossy: true,
+      cacheImpact: "low",
+    },
+  },
   headroom: {
     id: "headroom",
     label: "Headroom",

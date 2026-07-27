@@ -3,6 +3,7 @@
 // poe. Extracted from validation.ts (god-file decomposition) — top-level functions with no
 // dispatcher-state captures; behavior is byte-identical to the original inline defs.
 import { getRegistryEntry } from "@omniroute/open-sse/config/providerRegistry.ts";
+import { POE_DEFAULT_BASE_URL } from "@omniroute/open-sse/config/providers/registry/poe/index.ts";
 import { normalizeBaseUrl } from "./urlHelpers";
 import {
   applyCustomUserAgent,
@@ -23,6 +24,7 @@ import {
   buildMaritalkModelsUrl,
 } from "@omniroute/open-sse/config/maritalk.ts";
 import { signAwsRequest } from "@omniroute/open-sse/utils/awsSigV4.ts";
+import { resolveAlibabaProviderBaseUrl } from "@/shared/constants/alibabaProviderRegions";
 
 export async function validateDeepgramProvider({ apiKey, providerSpecificData = {} }: any) {
   try {
@@ -255,9 +257,9 @@ export async function validateBailianCodingPlanProvider({
   providerSpecificData = {},
 }: any) {
   try {
-    const rawBaseUrl =
-      normalizeBaseUrl(providerSpecificData.baseUrl) ||
-      "https://coding-intl.dashscope.aliyuncs.com/apps/anthropic/v1";
+    const rawBaseUrl = normalizeBaseUrl(
+      resolveAlibabaProviderBaseUrl("bailian-coding-plan", providerSpecificData)
+    );
     const baseUrl = rawBaseUrl.endsWith("/messages")
       ? rawBaseUrl.slice(0, -"/messages".length)
       : rawBaseUrl;
@@ -296,6 +298,43 @@ export async function validateBailianCodingPlanProvider({
       return { valid: true, error: null };
     }
 
+    return { valid: false, error: `Validation failed: ${response.status}` };
+  } catch (error: any) {
+    return toValidationErrorResult(error);
+  }
+}
+
+export async function validateQwenCloudTokenPlanProvider({
+  apiKey,
+  providerSpecificData = {},
+}: any) {
+  try {
+    const baseUrl = normalizeBaseUrl(
+      resolveAlibabaProviderBaseUrl("qwen-cloud-token-plan", providerSpecificData)
+    ).replace(/\/chat\/completions$/i, "");
+    const response = await validationWrite(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: buildBearerHeaders(apiKey, providerSpecificData),
+      body: JSON.stringify({
+        model: providerSpecificData.validationModelId || "qwen3.7-max",
+        max_tokens: 1,
+        messages: [{ role: "user", content: "test" }],
+      }),
+    });
+
+    if (response.status === 401 || response.status === 403) {
+      return { valid: false, error: "Invalid API key" };
+    }
+    if (response.status === 429) {
+      return {
+        valid: true,
+        error: null,
+        warning: "Provider accepted the key but is rate limited (429)",
+      };
+    }
+    if (response.ok || response.status === 400 || response.status === 422) {
+      return { valid: true, error: null };
+    }
     return { valid: false, error: `Validation failed: ${response.status}` };
   } catch (error: any) {
     return toValidationErrorResult(error);
@@ -570,7 +609,7 @@ export async function validateNousResearchProvider({ apiKey, providerSpecificDat
 }
 
 export async function validatePoeProvider({ apiKey, providerSpecificData = {} }: any) {
-  const baseUrl = normalizeBaseUrl(providerSpecificData.baseUrl) || "https://api.poe.com/v1";
+  const baseUrl = normalizeBaseUrl(providerSpecificData.baseUrl) || POE_DEFAULT_BASE_URL;
   const balanceUrl = new URL("/usage/current_balance", baseUrl).toString();
 
   try {

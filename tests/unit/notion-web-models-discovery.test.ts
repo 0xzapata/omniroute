@@ -320,6 +320,11 @@ test("notion-web models route returns live getAvailableModels catalog", async ()
       assert.equal(body.spaceId, "space-live-1");
       const headers = init?.headers as Record<string, string>;
       assert.match(String(headers.cookie || headers.Cookie || ""), /token_v2=sess/);
+      // Browser fingerprint headers present on models-discovery requests.
+      assert.ok(headers["sec-ch-ua"], "sec-ch-ua should be present");
+      assert.ok(headers["sec-fetch-mode"], "sec-fetch-mode should be present");
+      assert.equal(headers["sec-fetch-mode"], "cors");
+      assert.equal(headers["cache-control"], "no-cache");
       return Response.json(SAMPLE_RESPONSE);
     }
     return new Response("unexpected", { status: 500 });

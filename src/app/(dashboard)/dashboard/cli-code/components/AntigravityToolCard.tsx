@@ -291,7 +291,7 @@ export default function AntigravityToolCard({
                 </Badge>
               )}
             </div>
-            <p className="text-xs text-text-muted truncate">{tool.description}</p>
+            <p className="text-xs text-text-muted truncate">{t(`toolDescriptions.${tool.id}`)}</p>
           </div>
         </div>
         <span

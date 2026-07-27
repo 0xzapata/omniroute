@@ -4,8 +4,8 @@
  *
  * Extracted from handleChatCore's execute() closure: prepares the body actually sent upstream for a
  * given target model. Pins the model id, applies the configured payload rules, truncates the tool
- * list to the provider's effective limit, backfills a default `user` for Qwen OAuth requests, and
- * injects an OpenAI `prompt_cache_key` for caching-capable providers. Pure with respect to handler
+ * list to the provider's effective limit and injects an OpenAI `prompt_cache_key` for
+ * caching-capable providers. Pure with respect to handler
  * state (returns a fresh body, only logs as a side effect); behaviour is byte-identical to the
  * previous inline block. Split into small private steps so each stays under the complexity cap.
  */
@@ -87,27 +87,6 @@ function truncateToolList(
   return bodyToSend;
 }
 
-// Qwen OAuth rejects requests without a non-empty `user` field. Some minimal OpenAI-compatible
-// clients omit it, so we backfill a stable default only for OAuth mode (API key mode is unaffected).
-function backfillQwenOAuthUser(
-  bodyToSend: Body,
-  provider: string | null | undefined,
-  credentials: CredentialsLike,
-  log?: LoggerLike
-): Body {
-  const hasValidQwenUser = typeof bodyToSend.user === "string" && bodyToSend.user.trim().length > 0;
-  const isQwenOAuthRequest =
-    provider === "qwen" &&
-    !credentials?.apiKey &&
-    typeof credentials?.accessToken === "string" &&
-    credentials.accessToken.trim().length > 0;
-  if (isQwenOAuthRequest && !hasValidQwenUser) {
-    bodyToSend = { ...bodyToSend, user: "omniroute-qwen-oauth" };
-    log?.debug?.("QWEN", "Injected fallback user for OAuth request");
-  }
-  return bodyToSend;
-}
-
 // Inject prompt_cache_key only for providers that support it.
 async function injectPromptCacheKey(
   bodyToSend: Body,
@@ -179,7 +158,6 @@ export async function prepareUpstreamBody(opts: {
     log,
   });
   bodyToSend = truncateToolList(bodyToSend, provider, bypassDefaultToolLimit ?? false, log);
-  bodyToSend = backfillQwenOAuthUser(bodyToSend, provider, credentials, log);
   const connectionCacheOverride = resolveConnectionCacheOverride(credentials?.providerSpecificData);
   bodyToSend = await injectPromptCacheKey(
     bodyToSend,

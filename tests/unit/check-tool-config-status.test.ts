@@ -40,11 +40,7 @@ async function writeCodexConfig(opts: {
 
   if (opts.authApiKey !== undefined) {
     const authPath = path.join(tmpDir, "auth.json");
-    await fs.writeFile(
-      authPath,
-      JSON.stringify({ OPENAI_API_KEY: opts.authApiKey }),
-      "utf-8"
-    );
+    await fs.writeFile(authPath, JSON.stringify({ OPENAI_API_KEY: opts.authApiKey }), "utf-8");
   }
 
   return configPath;
@@ -62,10 +58,7 @@ test("claude: returns 'configured' when ANTHROPIC_BASE_URL is set", async () => 
 });
 
 test("claude: returns 'not_configured' when ANTHROPIC_BASE_URL is absent", async () => {
-  const configPath = await writeTempFile(
-    "settings.json",
-    JSON.stringify({ env: {} })
-  );
+  const configPath = await writeTempFile("settings.json", JSON.stringify({ env: {} }));
   const result = await checkToolConfigStatus("claude", configPath);
   assert.equal(result, "not_configured");
 });
@@ -93,25 +86,6 @@ test("codex: returns 'not_configured' when TOML has OmniRoute URL but auth key i
 test("codex: returns 'not_configured' when TOML does not mention OmniRoute", async () => {
   const configPath = await writeCodexConfig({ hasOmniRoute: false });
   const result = await checkToolConfigStatus("codex", configPath);
-  assert.equal(result, "not_configured");
-});
-
-// ── Qwen tests ────────────────────────────────────────────────────────────────
-
-test("qwen: returns 'configured' when modelProviders has OmniRoute URL", async () => {
-  const configPath = await writeTempFile(
-    "qwen.json",
-    JSON.stringify({
-      modelProviders: [{ apiBase: "http://localhost:20128/v1", name: "omniroute" }],
-    })
-  );
-  const result = await checkToolConfigStatus("qwen", configPath);
-  assert.equal(result, "configured");
-});
-
-test("qwen: returns 'not_configured' when modelProviders is missing", async () => {
-  const configPath = await writeTempFile("qwen.json", JSON.stringify({}));
-  const result = await checkToolConfigStatus("qwen", configPath);
   assert.equal(result, "not_configured");
 });
 
@@ -176,6 +150,44 @@ test("kilo: returns 'not_configured' when no OmniRoute markers present", async (
   assert.equal(result, "not_configured");
 });
 
+// ── Qwen Code ────────────────────────────────────────────────────────────────
+
+test("qwen: returns 'configured' only for an OmniRoute-managed model entry", async () => {
+  const configPath = await writeTempFile(
+    "settings.json",
+    JSON.stringify({
+      modelProviders: {
+        openai: [
+          {
+            id: "model-id",
+            envKey: "OMNIROUTE_API_KEY",
+            baseUrl: "http://localhost:20128/v1",
+          },
+        ],
+      },
+    })
+  );
+  assert.equal(await checkToolConfigStatus("qwen", configPath), "configured");
+});
+
+test("qwen: does not misclassify an unrelated custom OpenAI endpoint", async () => {
+  const configPath = await writeTempFile(
+    "settings.json",
+    JSON.stringify({
+      modelProviders: {
+        openai: [
+          {
+            id: "custom-model",
+            envKey: "CUSTOM_API_KEY",
+            baseUrl: "https://custom.example/v1",
+          },
+        ],
+      },
+    })
+  );
+  assert.equal(await checkToolConfigStatus("qwen", configPath), "not_configured");
+});
+
 // ── Edge cases ────────────────────────────────────────────────────────────────
 
 test("error path: non-existent file returns 'not_configured' (no throw)", async () => {
@@ -186,10 +198,7 @@ test("error path: non-existent file returns 'not_configured' (no throw)", async 
 test("unknown toolId: returns 'unknown' (no configPath for unknown tool)", async () => {
   // unknown tool has no config path via getCliPrimaryConfigPath — configPathOverride not needed
   // but we can also test via override with a valid JSON file to hit the default branch
-  const configPath = await writeTempFile(
-    "unknown.json",
-    JSON.stringify({ foo: "bar" })
-  );
+  const configPath = await writeTempFile("unknown.json", JSON.stringify({ foo: "bar" }));
   const result = await checkToolConfigStatus("totally-unknown-tool-id", configPath);
   assert.equal(result, "unknown");
 });

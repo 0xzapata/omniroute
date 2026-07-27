@@ -20,12 +20,10 @@ delete process.env.INITIAL_PASSWORD; // auth not required in this test env
 
 const core = await import("../../src/lib/db/core.ts");
 const proxiesDb = await import("../../src/lib/db/proxies.ts");
-const { POST: batchDeletePost } = await import(
-  "../../src/app/api/settings/proxies/batch-delete/route.ts"
-);
-const { POST: autoTestPost } = await import(
-  "../../src/app/api/settings/proxies/auto-test/route.ts"
-);
+const { POST: batchDeletePost } =
+  await import("../../src/app/api/settings/proxies/batch-delete/route.ts");
+const { POST: autoTestPost } =
+  await import("../../src/app/api/settings/proxies/auto-test/route.ts");
 
 function jsonRequest(body: unknown): Request {
   return new Request("http://localhost/api/settings/proxies/batch-delete", {
@@ -59,7 +57,7 @@ test("batch-delete removes multiple existing proxies in one request", async () =
   assert.equal(body.deleted, 2);
   assert.equal(body.failed, 0);
   // Both are actually gone from the store.
-  const remaining = await proxiesDb.listProxies({ includeSecrets: false });
+  const { items: remaining } = await proxiesDb.listProxies({ includeSecrets: false });
   assert.equal(remaining.filter((p) => p.id === a.id || p.id === b.id).length, 0);
 });
 
