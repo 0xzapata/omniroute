@@ -8,6 +8,11 @@ import { writePidFile, cleanupPidFile, waitForServer } from "../utils/pid.mjs";
 import { ServerSupervisor, detectMitmCrash } from "../runtime/processSupervisor.mjs";
 import { isTermux } from "../../../scripts/build/postinstallSupport.mjs";
 import {
+  ensureAndroidCacheDir,
+  isFatalInstrumentationHookFailure,
+  formatAndroidInstrumentationFailureHint,
+} from "../utils/ensureAndroidCacheDir.mjs";
+import {
   resolveMaxOldSpaceMb,
   calibrateHeapFallbackMb,
   buildServerNodeOptions,
@@ -62,8 +67,36 @@ export function registerServe(program) {
     });
 }
 
+/** Once-per-process guard so the Android/Termux cache hint is not spammed. */
+let instrumentationFailureHintPrinted = false;
+
+/**
+ * If child output looks like Next.js failed to load its instrumentation hook
+ * on Android/Termux, print a clear operator-facing fix hint.
+ * Exported for unit tests.
+ *
+ * @param {string} text
+ * @returns {boolean} true when a hint was printed
+ */
+export function maybeReportInstrumentationHookFailure(text) {
+  if (instrumentationFailureHintPrinted) return false;
+  if (!isFatalInstrumentationHookFailure(text)) return false;
+  instrumentationFailureHintPrinted = true;
+  process.stderr.write(formatAndroidInstrumentationFailureHint(process.env.XDG_CACHE_HOME));
+  return true;
+}
+
+/** Test-only reset for the once-per-process hint guard. */
+export function resetInstrumentationFailureHintForTests() {
+  instrumentationFailureHintPrinted = false;
+}
+
 export async function runServe(opts = {}) {
   const startedAt = performance.now();
+
+  // Same prep as bin/omniroute.mjs — keep it here so a direct `runServe()` call
+  // (tests / programmatic) still gets a writable Next.js cache dir before spawn.
+  ensureAndroidCacheDir({ env: process.env });
 
   const { isNativeBinaryCompatible } =
     await import("../../../scripts/build/native-binary-compat.mjs");
@@ -262,6 +295,7 @@ function runWithoutRecovery(serverJs, env, memoryLimit, dashboardPort, apiPort, 
   server.stdout.on("data", (data) => {
     const text = data.toString();
     process.stdout.write(text);
+    maybeReportInstrumentationHookFailure(text);
     if (
       !started &&
       (text.includes("Ready") || text.includes("started") || text.includes("listening"))
@@ -271,7 +305,11 @@ function runWithoutRecovery(serverJs, env, memoryLimit, dashboardPort, apiPort, 
     }
   });
 
-  server.stderr.on("data", (data) => process.stderr.write(data));
+  server.stderr.on("data", (data) => {
+    const text = data.toString();
+    process.stderr.write(text);
+    maybeReportInstrumentationHookFailure(text);
+  });
 
   server.on("error", (err) => {
     console.error("\x1b[31m✖ Failed to start server:\x1b[0m", err.message);
@@ -380,6 +418,9 @@ export function reportReadinessTimeout(dashboardPort, supervisor) {
     console.error("--- Recent server output ---");
     recentLog.forEach((l) => console.error(l));
     console.error("--- End recent output ---\n");
+    // If the buffered log already shows the Android instrumentation failure,
+    // print the actionable hint even when --log was off (default).
+    maybeReportInstrumentationHookFailure(recentLog.join("\n"));
   }
 }
 

@@ -10,6 +10,10 @@ import {
 } from "./supervisorPolicy.mjs";
 import { buildNodeHeapArgs } from "../../../scripts/build/runtime-env.mjs";
 import { stopProcessGracefully } from "../../../src/shared/platform/windowsProcess.ts";
+import {
+  isFatalInstrumentationHookFailure,
+  formatAndroidInstrumentationFailureHint,
+} from "../utils/ensureAndroidCacheDir.mjs";
 
 const CRASH_LOG_LINES = 50;
 
@@ -31,11 +35,13 @@ export class ServerSupervisor {
     this.crashLog = [];
     this.child = null;
     this.isShuttingDown = false;
+    this.instrumentationFailureHintPrinted = false;
   }
 
   start() {
     this.startedAt = Date.now();
     this.crashLog = [];
+    this.instrumentationFailureHintPrinted = false;
 
     const showLog = process.env.OMNIROUTE_SHOW_LOG === "1";
     // #5238: skip the explicit CLI --max-old-space-size when the user pinned the
@@ -60,10 +66,21 @@ export class ServerSupervisor {
     writePidFile("server", this.child.pid);
 
     const bufferOutput = (data) => {
-      const lines = data.toString().split("\n").filter(Boolean);
+      const text = data.toString();
+      const lines = text.split("\n").filter(Boolean);
       this.crashLog.push(...lines);
       if (this.crashLog.length > CRASH_LOG_LINES) {
         this.crashLog = this.crashLog.slice(-CRASH_LOG_LINES);
+      }
+      // Surface Android/Termux instrumentation-hook failures even when --log is
+      // off (output is only buffered otherwise).
+      if (!this.instrumentationFailureHintPrinted && isFatalInstrumentationHookFailure(text)) {
+        this.instrumentationFailureHintPrinted = true;
+        process.stderr.write(
+          formatAndroidInstrumentationFailureHint(
+            this.env?.XDG_CACHE_HOME || process.env.XDG_CACHE_HOME
+          )
+        );
       }
     };
 
