@@ -133,6 +133,9 @@ LABEL org.opencontainers.image.title="omniroute" \
 ENV NODE_ENV=production
 ENV PORT=20128
 ENV HOSTNAME=0.0.0.0
+# Temporary containment for upstream #8932: keep native Codex Responses history
+# client-managed instead of triggering proxy compaction at the stale 272k catalog hint.
+ENV CONTEXT_LENGTH_CODEX=400000
 # Runtime heap ceiling. 1024MB is enough for normal traffic but can be tight
 # for large fusion-combo panels (many models fanned out in parallel, each
 # response buffered in full — see open-sse/services/fusion.ts::FUSION_DEFAULTS
