@@ -430,7 +430,7 @@ test("OpenAI stream: XML <invoke> block in content becomes tool_use at finish", 
     (e) => e.type === "content_block_start" && e.content_block?.type === "tool_use"
   );
   assert.ok(toolStart, "expected tool_use content_block_start");
-  assert.equal(toolStart.content_block.name, "bash"); // normalized via REVERSE_MAP
+  assert.equal(toolStart.content_block.name, "Bash"); // canonical echo kept (#11085 live repro)
   assert.deepEqual(toolStart.content_block.input, { command: "ls -la" });
   // tool_use content_block_stop
   const toolStop = result.find((e) => e.type === "content_block_stop");
@@ -492,7 +492,7 @@ test("OpenAI stream: XML invoke block across two streaming chunks", () => {
     (e) => e.type === "content_block_start" && e.content_block?.type === "tool_use"
   );
   assert.ok(toolStart, "expected tool_use content_block_start");
-  assert.equal(toolStart.content_block.name, "read");
+  assert.equal(toolStart.content_block.name, "Read"); // canonical echo kept (#11085 live repro)
   assert.deepEqual(toolStart.content_block.input, { file_path: "/etc/hosts" });
 });
 
@@ -559,7 +559,7 @@ test("OpenAI stream: text before XML block is emitted as text content", () => {
     (e) => e.type === "content_block_start" && e.content_block?.type === "tool_use"
   );
   assert.ok(toolStart, "expected tool_use content_block_start");
-  assert.equal(toolStart.content_block.name, "bash");
+  assert.equal(toolStart.content_block.name, "Bash"); // canonical echo kept (#11085 live repro)
   assert.deepEqual(toolStart.content_block.input, { command: "date" });
 });
 

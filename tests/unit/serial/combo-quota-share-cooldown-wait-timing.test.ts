@@ -221,13 +221,14 @@ test("non quota-share (priority): a quota_exhausted lock drives the decision wit
     allCombos: null,
   });
 
-  // Final status is the last target's 403 (aggregation last-wins). The security
-  // invariant is that the allow-list rejected the wait — not that a peer 429 is
-  // re-surfaced as the HTTP status.
+  // #10501: mixed 429 (rate_limit) + 403 (quota_exhausted) is a heterogeneous
+  // failure class, so resolveComboTerminalStatus normalizes to 502 instead of
+  // last-wins 403. The security invariant is still the allow-list rejecting
+  // the wait — proved by the dispatch list below, not by the HTTP status.
   assert.equal(
     res.status,
-    403,
-    "quota_exhausted target status crystallizes; wait must not redispatch"
+    502,
+    "heterogeneous 429+403 must aggregate to 502; wait must not redispatch"
   );
   // Deterministic proof (no wall-clock dependency, so it cannot flake under
   // CI-runner contention): each target is dispatched EXACTLY ONCE. Had the wait

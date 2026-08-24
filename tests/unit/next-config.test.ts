@@ -105,6 +105,7 @@ test("next config declares Turbopack aliases, runtime assets and server external
     // sqlite-vec ships a native vec0.so loaded at runtime; without externalizing it
     // the Turbopack build fails with "Unknown module type" on the .so (issue #3066).
     "sqlite-vec",
+    "node-machine-id",
     "wreq-js",
     "fs",
     "path",

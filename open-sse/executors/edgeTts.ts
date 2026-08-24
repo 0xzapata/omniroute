@@ -58,7 +58,7 @@ export interface EdgeTtsSynthInput {
 }
 
 export interface EdgeTtsSynthResult {
-  audio: Buffer;
+  audio: Buffer<ArrayBuffer>;
   contentType: string;
 }
 

@@ -83,7 +83,7 @@ test("deletePool prunes its id from api_key allowed_quotas", async () => {
   const before = getAllowedQuotasById(keyObj.id);
   assert.ok(before.includes(pool.id), `pool.id should be in allowed_quotas before delete`);
 
-  poolsDb.deletePool(pool.id);
+  await poolsDb.deletePool(pool.id);
 
   const after = getAllowedQuotasById(keyObj.id);
   assert.ok(!after.includes(pool.id), `pool.id should NOT be in allowed_quotas after delete`);
@@ -101,7 +101,7 @@ test("deletePool preserves unrelated pool ids in allowed_quotas", async () => {
     allowedQuotas: [poolToDelete.id, otherPool.id, unrelatedId],
   });
 
-  poolsDb.deletePool(poolToDelete.id);
+  await poolsDb.deletePool(poolToDelete.id);
 
   const after = getAllowedQuotasById(keyObj.id);
   assert.ok(!after.includes(poolToDelete.id), "deleted pool id should be removed");
@@ -119,7 +119,7 @@ test("deletePool does not modify keys that don't reference the deleted pool", as
   // This key only references otherPool, not poolToDelete
   await apiKeysDb.updateApiKeyPermissions(keyObj.id, { allowedQuotas: [otherPool.id] });
 
-  poolsDb.deletePool(poolToDelete.id);
+  await poolsDb.deletePool(poolToDelete.id);
 
   const after = getAllowedQuotasById(keyObj.id);
   assert.deepEqual(after, [otherPool.id], "key referencing only other pool should be unchanged");
@@ -132,7 +132,7 @@ test("deletePool: key with empty allowed_quotas stays empty", async () => {
   const keyObj = await apiKeysDb.createApiKey("Prune Key 4", "machine-prune-4");
   // Don't set allowedQuotas — default is []
 
-  poolsDb.deletePool(pool.id);
+  await poolsDb.deletePool(pool.id);
 
   const after = getAllowedQuotasById(keyObj.id);
   assert.deepEqual(after, [], "empty allowed_quotas should remain empty after delete");
@@ -154,7 +154,7 @@ test("deletePool prunes pool id from ALL keys that reference it", async () => {
     await apiKeysDb.updateApiKeyPermissions(k.id, { allowedQuotas: [pool.id, otherPoolId] });
   }
 
-  poolsDb.deletePool(pool.id);
+  await poolsDb.deletePool(pool.id);
 
   for (const k of keys) {
     const after = getAllowedQuotasById(k.id);
@@ -165,23 +165,31 @@ test("deletePool prunes pool id from ALL keys that reference it", async () => {
 
 // ── 6. deletePool still returns true/false correctly ─────────────────────────
 
-test("deletePool returns true for existing pool, false for non-existent", () => {
+test("deletePool returns true for existing pool, false for non-existent", async () => {
   const pool = poolsDb.createPool({ connectionId: "conn-ret-1", name: "Return Test" });
-  assert.equal(poolsDb.deletePool(pool.id), true, "should return true for existing pool");
-  assert.equal(poolsDb.deletePool(pool.id), false, "should return false for already-deleted pool");
-  assert.equal(poolsDb.deletePool("nonexistent-id"), false, "should return false for unknown id");
+  assert.equal(await poolsDb.deletePool(pool.id), true, "should return true for existing pool");
+  assert.equal(
+    await poolsDb.deletePool(pool.id),
+    false,
+    "should return false for already-deleted pool"
+  );
+  assert.equal(
+    await poolsDb.deletePool("nonexistent-id"),
+    false,
+    "should return false for unknown id"
+  );
 });
 
 // ── 7. Pool row and allocation rows are gone after delete (regression guard) ──
 
-test("deletePool removes pool and allocation rows from DB", () => {
+test("deletePool removes pool and allocation rows from DB", async () => {
   const pool = poolsDb.createPool({
     connectionId: "conn-reg-1",
     name: "Regression Pool",
     allocations: [{ apiKeyId: "key-reg-1", weight: 50, policy: "hard" }],
   });
 
-  poolsDb.deletePool(pool.id);
+  await poolsDb.deletePool(pool.id);
 
   assert.equal(poolsDb.getPool(pool.id), null, "getPool should return null after delete");
   const { items: allPools } = poolsDb.listPools();

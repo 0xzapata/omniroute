@@ -13,6 +13,7 @@ export type CodexUsageQuota = {
   remaining?: number;
   resetAt: string | null;
   unlimited: boolean;
+  windowSeconds: number | null;
   displayName?: string;
 };
 
@@ -36,6 +37,15 @@ function toNumber(value: unknown, fallback = 0): number {
     return Number.isFinite(parsed) ? parsed : fallback;
   }
   return fallback;
+}
+
+function toNullableNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
 }
 
 function parseResetTime(resetValue: unknown): string | null {
@@ -81,6 +91,15 @@ function buildPercentageQuota(window: JsonRecord, displayName?: string): CodexUs
     remaining: 100 - usedPercent,
     resetAt: parseWindowReset(window),
     unlimited: false,
+    windowSeconds: toNullableNumber(
+      getFieldValue(
+        window,
+        "limit_window_seconds",
+        "limitWindowSeconds",
+        "window_seconds",
+        "windowSeconds"
+      )
+    ),
     ...(displayName ? { displayName } : {}),
   };
 }

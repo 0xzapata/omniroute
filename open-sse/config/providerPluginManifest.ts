@@ -11,6 +11,7 @@ export interface ProviderPluginModel {
   toolCalling?: boolean;
   supportsReasoning?: boolean;
   supportsVision?: boolean;
+  supportsVideo?: boolean;
   unsupportedParams?: readonly string[];
   targetFormat?: string;
 }
@@ -66,6 +67,7 @@ function mapModel(model: RegistryModel): ProviderPluginModel {
     toolCalling: model.toolCalling,
     supportsReasoning: model.supportsReasoning,
     supportsVision: model.supportsVision,
+    supportsVideo: model.supportsVideo,
     unsupportedParams: model.unsupportedParams,
     targetFormat: model.targetFormat,
   }) as ProviderPluginModel;

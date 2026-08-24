@@ -32,27 +32,16 @@ const { parseEffortLevel, OpencodeExecutor } =
     };
   };
 
-// ─── DeepSeek v4-pro: all 4 tiers ─────────────────────────────────────────
+// ─── DeepSeek V4 Pro: none/low/high/max ───────────────────────────────────
 
-test("#6922 parseEffortLevel: deepseek-v4-pro-low → low", () => {
-  const result = parseEffortLevel("deepseek-v4-pro-low");
-  assert.deepEqual(result, { baseModel: "deepseek-v4-pro", effort: "low" });
-});
-
-test("#6922 parseEffortLevel: deepseek-v4-pro-medium → medium", () => {
-  const result = parseEffortLevel("deepseek-v4-pro-medium");
-  assert.deepEqual(result, { baseModel: "deepseek-v4-pro", effort: "medium" });
-});
-
-test("#6922 parseEffortLevel: deepseek-v4-pro-high → high", () => {
-  const result = parseEffortLevel("deepseek-v4-pro-high");
-  assert.deepEqual(result, { baseModel: "deepseek-v4-pro", effort: "high" });
-});
-
-test("#6922 parseEffortLevel: deepseek-v4-pro-max → max", () => {
-  const result = parseEffortLevel("deepseek-v4-pro-max");
-  assert.deepEqual(result, { baseModel: "deepseek-v4-pro", effort: "max" });
-});
+for (const effort of ["none", "low", "high", "max"]) {
+  test(`#6922 parseEffortLevel: deepseek-v4-pro-${effort} → ${effort}`, () => {
+    assert.deepEqual(parseEffortLevel(`deepseek-v4-pro-${effort}`), {
+      baseModel: "deepseek-v4-pro",
+      effort,
+    });
+  });
+}
 
 // ─── GLM-5.2: high + max only ────────────────────────────────────────────
 
@@ -79,6 +68,10 @@ test("#6922 parseEffortLevel: mimo-v2.5-max → max", () => {
 });
 
 // ─── Negative cases ────────────────────────────────────────────────────────
+
+test("#6922 parseEffortLevel: deepseek-v4-pro-medium → null (unsupported tier)", () => {
+  assert.strictEqual(parseEffortLevel("deepseek-v4-pro-medium"), null);
+});
 
 test("#6922 parseEffortLevel: unknown model → null", () => {
   const result = parseEffortLevel("nonexistent-model-high");

@@ -64,10 +64,12 @@ test("getBestVisionModel — should exclude specified models", async () => {
 
 test("getBestVisionModel — excludes a candidate with no usable active connection", async () => {
   // Every candidate reports a confirmed-unusable connection (`false`) ->
-  // no candidate survives -> the hardcoded last-resort default is returned
-  // instead of an unreachable pick.
-  const model = await getBestVisionModel({}, { hasUsableCredentials: async () => false });
-  assert.equal(model, "openai/gpt-4o-mini");
+  // no candidate survives -> returns null instead of an unreachable default.
+  const model = await getBestVisionModel(
+    {},
+    { hasUsableCredentials: async () => false }
+  );
+  assert.equal(model, null);
 });
 
 test("getBestVisionModel — selects a credentialed candidate over an uncredentialed higher-priority one", async () => {

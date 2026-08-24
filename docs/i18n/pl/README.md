@@ -6,19 +6,19 @@
 
 # 🚀 OmniRoute — Darmowa bramka AI
 
-<img src="../../../docs/diagrams/readme-hero.svg" width="100%" alt="OmniRoute — Nigdy nie przestawaj kodować. Każde narzędzie AI → 268 dostawców — ponad 90 darmowych — przez jeden punkt końcowy. Claude Code, Codex, Cursor, Cline, Copilot i Antigravity w DARMOWE Claude / GPT / Gemini z automatycznym przekierowaniem (auto-fallback). Kaskadowa kompresja RTK + Caveman oszczędza 15–95% tokenów (średnio ~89%) — nigdy nie przekraczaj limitów. 268 dostawców AI · ponad 90 darmowych pakietów · ~1,4 mld darmowych tokenów/mies. · 18 strategii routingu · 0 USD na start."/>
+<img src="../../../docs/diagrams/readme-hero.svg" width="100%" alt="OmniRoute — Koduj dalej mimo limitów dostawców. Każde narzędzie AI → 329 wpisów katalogu dostawców — 155 oznaczone free/no-auth — przez jeden punkt końcowy. Claude Code, Codex, Cursor, Cline, Copilot i Antigravity mogą korzystać z bezpłatnego dostępu do Claude / GPT / Gemini z automatycznym fallbackiem, zależnie od dostępności i limitów dostawcy. Kaskadowa kompresja RTK + Caveman oszczędza 15–95% kwalifikowanych tokenów (średnio ~89% w sesjach z intensywnym użyciem narzędzi). 329 wpisów katalogu · 155 free/no-auth · ~1,53 mld udokumentowanych tokenów cyklicznych/mies. · 19 strategii routingu · 0 USD na start."/>
 
 </div>
 
 <div align="center">
 
-# 💰 ~1,4 mld darmowych tokenów / miesiąc
+# 💰 ~1,53 mld darmowych tokenów / miesiąc
 
 </div>
 
-> Ręczne łączenie darmowych pakietów jest uciążliwe — dziesiątki SDK, dziesiątki limitów zapytań (rate limits) i brak wiedzy, ile tak naprawdę Ci pozostało. OmniRoute agreguje **udokumentowane** darmowe pakiety z **39 pul dostawców / ponad 460 modeli** w jedną rzetelną liczbę i wyświetla ją na żywo w panelu (`/dashboard/free-tiers`).
+> Ręczne łączenie darmowych pakietów jest uciążliwe — dziesiątki SDK, dziesiątki limitów zapytań (rate limits) i brak wiedzy, ile tak naprawdę Ci pozostało. OmniRoute pokazuje **155 wpisy katalogu oznaczone free/no-auth**. Ściśle kwantyfikowany budżet obejmuje **43 pule dostawców / 522 wpisy budżetowe modeli** i jest wyświetlany na żywo w panelu (`/dashboard/free-tiers`).
 
-<img src="../../../docs/diagrams/free-tier-budget.svg" width="100%" alt="Karta budżetu darmowych pakietów OmniRoute: stabilne ~1,4 mld darmowych tokenów miesięcznie, do ~2,0 mld w pierwszym miesiącu dzięki kredytom na start, z udokumentowanych darmowych poziomów 39 pul dostawców / ponad 460 modeli za jednym punktem końcowym. Rzetelne wyliczenia z deduplikacją puli — każda współdzielona pula liczona raz (liczenie każdego limitu zapytań 24/7 dałoby ~10 mld; niepublikowane), 15 dostawców oflagowanych ze względu na Warunki Świadczenia Usług (ToS), więc decyzja należy do Ciebie. Pasek budżetu 19 mierzalnych darmowych pul z siatką modeli (Mistral Large 3 1B, GPT-4o mini 150M, Gemini 2.5 Flash 60M … Claude Sonnet 4.5 25K), ~626M jednorazowych kredytów startowych w pierwszym miesiącu (vertex 300M, agentrouter 200M, predibase 25M, together 25M, glm-cn 20M, doubao 15M, ai21 10M, longcat 10M, deepseek 5M, hyperbolic 5M, nscale 5M), plus stale darmowi dostawcy bez limitu tokenów (SiliconFlow, Z.AI GLM-Flash, Kilo, OpenCode Zen, baidu …) oraz doładowanie OpenRouter za 10 USD odblokowujące +24M/mies. — przedstawione osobno, aby nie sztucznie zawyżać głównego nagłówka. Zużycie/pozostało na żywo na /dashboard/free-tiers."/>
+<img src="../../../docs/diagrams/free-tier-budget.svg" width="100%" alt="Karta budżetu darmowych pakietów OmniRoute: stabilne ~1,53 mld darmowych tokenów miesięcznie, do ~2,15 mld w pierwszym miesiącu dzięki kredytom na start, z udokumentowanych darmowych poziomów 43 pul dostawców / 522 wpisów budżetowych modeli za jednym punktem końcowym. Rzetelne wyliczenia z deduplikacją puli — każda współdzielona pula liczona raz, 15 dostawców oflagowanych ze względu na ToS. Pasek budżetu obejmuje 19 kwantyfikowanych pul, ~626M jednorazowych kredytów startowych oraz dostawców cyklicznych bez opublikowanego limitu tokenów, lecz z limitami szybkości i współbieżności. Zużycie/pozostało na żywo na /dashboard/free-tiers."/>
 
 > Animowane podsumowanie strony `/dashboard/free-tiers` na żywo. Pełna metodologia (deduplikacja pul, pakiety kredytów, warunki dostawców): **[docs/reference/FREE_TIERS.md](../../../docs/reference/FREE_TIERS.md)**.
 >
@@ -59,7 +59,7 @@
 ![Docker Pulls](https://img.shields.io/docker/pulls/diegosouzapw/omniroute?label=docker%20pulls&logo=docker&color=2496ED)
 ![Electron Downloads](https://img.shields.io/github/downloads/diegosouzapw/omniroute/total?style=flat&label=electron%20downloads&logo=electron&color=47848F)
 
-[**🚀 Szybki start**](#-szybki-start) • [**🎯 Komba**](#-komba-combos--flagowa-funkcja) • [**🌐 Dostawcy**](#-268-dostawc%C3%B3w-ai--ponad-90-darmowych) • [**🔌 CLI & MCP**](#-pe%C5%82ne-cli--a2a-i-mcp) • [**🗜️ Kompresja**](#%EF%B8%8F-oszcz%C4%99dzaj-1595-token%C3%B3w--automatycznie) • [**🌍 Strona WWW**](https://omniroute.online)
+[**🚀 Szybki start**](#-szybki-start) • [**🎯 Komba**](#-komba-combos--flagowa-funkcja) • [**🌐 Dostawcy**](#-329-wpisów-katalogu-ai--155-free-no-auth) • [**🔌 CLI & MCP**](#-pe%C5%82ne-cli--a2a-i-mcp) • [**🗜️ Kompresja**](#%EF%B8%8F-oszcz%C4%99dzaj-1595-token%C3%B3w--automatycznie) • [**🌍 Strona WWW**](https://omniroute.online)
 
 [💥 Obietnica](#-obietnica) • [🤔 Dlaczego](#-dlaczego-omniroute) • [🏆 Co wyróżnia OmniRoute](#-co-wyr%C3%B3%C5%BCnia-omniroute) • [🤖 Zgodne CLI](#-zgodne-cli-i-agenci-koduj%C4%85cy) • [🖥️ Gdzie to działa](#%EF%B8%8F-gdzie-dzia%C5%82a-omniroute--wsz%C4%99dzie) • [🔒 Prywatność](#-prywatno%C5%9B%C4%87-i-lokalne-dzia%C5%82anie-local-first) • [🎬 W akcji](#-omniroute-w-akcji) • [📸 Zrzuty ekranu](#-zrzuty-ekranu-z-panelu) • [📧 Wsparcie](#-wsparcie-i-spo%C5%82eczno%C5%9B%C4%87)
 
@@ -126,7 +126,7 @@
 
 </div>
 
-<img src="../../../docs/diagrams/promise-pillars.svg" width="100%" alt="Obietnica — Jeden punkt końcowy. 268 dostawców. Nigdy nie przestawaj tworzyć — OmniRoute wybiera najtańsze działające rozwiązanie. Sześć filarów: Nigdy nie napotykaj limitów (automatyczne przełączanie między 268 dostawcami w milisekundy, zero przestojów) · Oszczędzaj do 95% tokenów (kaskadowa kompresja RTK + Caveman zmniejsza zużycie o 15–95%, średnio ~89% w sesjach z intensywnym użyciem narzędzi) · 0 USD na start (90+ darmowych pakietów, 40+ darmowych na zawsze — bez karty) · Każde narzędzie działa (26 agentów kodujących przez jedną konfigurację) · Jeden punkt końcowy (OpenAI ↔ Claude ↔ Gemini ↔ API Responses na /v1) · Klasa produkcyjna (wyłączniki awaryjne [circuit breakers], maskowanie TLS [TLS stealth], 104 narzędzia MCP, A2A, pamięć, barierki ochronne [guardrails], ewaluacje — ponad 25 000 testów)."/>
+<img src="../../../docs/diagrams/promise-pillars.svg" width="100%" alt="Obietnica — Jeden punkt końcowy. 329 wpisów katalogu. OmniRoute wybiera najtańsze kwalifikujące się rozwiązanie i próbuje fallbacku, gdy upstream lub quota zawiedzie, zależnie od dostępności trasy. Sześć filarów: odporność · oszczędność do 95% tokenów · 0 USD na start (155 wpisy free/no-auth, warunki i limity zależą od dostawcy) · 33 narzędzia i agenci kodujący przez jedną konfigurację · jeden punkt końcowy · klasa produkcyjna."/>
 
 <br/>
 <br/>
@@ -141,7 +141,7 @@
 
 <div align="center">
 
-<img src="../../../docs/diagrams/tier-cascade.svg" width="100%" alt="Przepływ żądań OmniRoute: Twoje IDE lub CLI (Claude Code, Cursor, Cline…) wywołuje jeden lokalny punkt końcowy (http://localhost:20128/v1); inteligentny router OmniRoute (kompresja RTK + Caveman, 18 strategii routingu, wyłączniki awaryjne, maskowanie TLS, MCP, A2A, barierki ochronne) automatycznie przełącza się między 4 poziomami dostawców — Poziom 1 Subskrypcja (Claude Code, Codex, Copilot), brak limitu? Poziom 2 Klucz API (DeepSeek, Groq, xAI), przekroczony budżet? Poziom 3 Tanie (GLM $0.5, MiniMax $0.2), przekroczony budżet? Poziom 4 Darmowe (Kiro, Qoder, Pollinations) — zawsze włączone."/>
+<img src="../../../docs/diagrams/tier-cascade.svg" width="100%" alt="Przepływ żądań OmniRoute: Twoje IDE lub CLI wywołuje jeden lokalny punkt końcowy; inteligentny router (kompresja RTK + Caveman, 19 strategii routingu, wyłączniki awaryjne, TLS stealth, MCP, A2A, guardrails) próbuje kolejnych poziomów — Subskrypcja, Klucz API, Tanie, Darmowe — gdy limit lub budżet wyczerpie się, zależnie od dostępności upstreamu."/>
 
 </div>
 
@@ -168,34 +168,35 @@ Nie musisz tworzyć żadnego komba. Ustaw swój model na `auto` (lub jego warian
 | `auto/offline`       | 🔋 W pierwszej kolejności największy zapas limitu (quota / rate-limit)           |
 | `auto/smart`         | 🔭 Najpierw jakość + 10% eksploracji w celu odkrycia lepszych modeli             |
 
-### 🔀 Albo zbuduj własne — 18 strategii routingu
+### 🔀 Albo zbuduj własne — 19 strategii routingu
 
-Wszystkie **18** strategii — łącz i dopasowuj na każdym kroku komba:
+Wszystkie **19** strategii — łącz i dopasowuj na każdym kroku komba:
 
-| #   | Strategia           | Co robi                                                                                  |
-| --- | ------------------- | ---------------------------------------------------------------------------------------- |
-| 1   | `priority`          | Uporządkowana lista według priorytetu — zużyj każdy cel przed przejściem do kolejnego 🥇 |
-| 2   | `fill-first`        | Wypełnij całkowicie limit każdego celu przed pójściem dalej                              |
-| 3   | `weighted`          | Wybór losowy ważony według wagi przypisanej do celu                                      |
-| 4   | `round-robin`       | Przechodzenie przez cele po kolei (Round-Robin)                                          |
-| 5   | `p2c`               | Losowe równoważenie obciążenia metodą "wybierz dwa, weź lepszy" (P2C)                    |
-| 6   | `least-used`        | Wybierz cel o najniższym aktualnym obciążeniu                                            |
-| 7   | `random`            | Jednolity losowy wybór (ze skreśleniem powtórzeń)                                        |
-| 8   | `strict-random`     | Losowo bez usuwania duplikatów 🎲                                                        |
-| 9   | `cost-optimized`    | Minimalizuj koszt w USD za zapytanie na podstawie cennika w katalogu na żywo 💸          |
-| 10  | `headroom`          | Wybierz cel z największym pozostałym limitem                                             |
-| 11  | `reset-window`      | Preferuj cel, którego okno limitu resetuje się najszybciej                               |
-| 12  | `reset-aware`       | Klasyfikuj według czasu resetu limitu — najpierw krótkie okna 📊                         |
-| 13  | `context-relay`     | Przekazuj kontekst między celami przy długich rozmowach 🧠                               |
-| 14  | `context-optimized` | Wybierz cel najlepiej dopasowany do bieżącego rozmiaru kontekstu                         |
-| 15  | `lkgp`              | Ostatnia znana dobra ścieżka (LKGP) — trzyma się ostatniego udanego celu                 |
-| 16  | `auto`              | Ocenianie na żywo na podstawie 12 czynników dla każdego połączenia 🤖                    |
-| 17  | `fusion`            | Rozesłanie zapytania do panelu modeli + sędzia syntetyzuje jedną odpowiedź (Fusion) 🧬   |
-| 18  | `pipeline`          | Łączenie kroków — wyjście każdego celu zasila kolejny 🔗                                 |
+| #   | Strategia           | Co robi                                                                                           |
+| --- | ------------------- | ------------------------------------------------------------------------------------------------- |
+| 1   | `priority`          | Uporządkowana lista według priorytetu — zużyj każdy cel przed przejściem do kolejnego 🥇          |
+| 2   | `fill-first`        | Wypełnij całkowicie limit każdego celu przed pójściem dalej                                       |
+| 3   | `weighted`          | Wybór losowy ważony według wagi przypisanej do celu                                               |
+| 4   | `round-robin`       | Przechodzenie przez cele po kolei (Round-Robin)                                                   |
+| 5   | `p2c`               | Losowe równoważenie obciążenia metodą "wybierz dwa, weź lepszy" (P2C)                             |
+| 6   | `least-used`        | Wybierz cel o najniższym aktualnym obciążeniu                                                     |
+| 7   | `random`            | Jednolity losowy wybór (ze skreśleniem powtórzeń)                                                 |
+| 8   | `strict-random`     | Losowo bez usuwania duplikatów 🎲                                                                 |
+| 9   | `cost-optimized`    | Minimalizuj koszt w USD za zapytanie na podstawie cennika w katalogu na żywo 💸                   |
+| 10  | `headroom`          | Wybierz cel z największym pozostałym limitem                                                      |
+| 11  | `reset-window`      | Preferuj cel, którego okno limitu resetuje się najszybciej                                        |
+| 12  | `reset-aware`       | Klasyfikuj według czasu resetu limitu — najpierw krótkie okna 📊                                  |
+| 13  | `context-relay`     | Przekazuj kontekst między celami przy długich rozmowach 🧠                                        |
+| 14  | `context-optimized` | Wybierz cel najlepiej dopasowany do bieżącego rozmiaru kontekstu                                  |
+| 15  | `cache-optimized`   | Przypnij wielokrotnie używany prefiks promptu do tego samego konta, aby zwiększyć trafienia cache |
+| 16  | `lkgp`              | Ostatnia znana dobra ścieżka (LKGP) — trzyma się ostatniego udanego celu                          |
+| 17  | `auto`              | Ocenianie na żywo na podstawie 13 czynników dla każdego połączenia 🤖                             |
+| 18  | `fusion`            | Rozesłanie zapytania do panelu modeli + sędzia syntetyzuje jedną odpowiedź (Fusion) 🧬            |
+| 19  | `pipeline`          | Łączenie kroków — wyjście każdego celu zasila kolejny 🔗                                          |
 
-<img src="../../../docs/diagrams/strategies-grid.svg" width="100%" alt="Wszystkie 18 strategii routingu komba w formie animowanej, po jednym kafelku na strategię pokazującym realizowany przepływ: priority (zużyj pierwszy, potem kolejny), fill-first (wypełnij limit celu, potem idź dalej), weighted (losowy ważony), round-robin (cyklicznie w kolejności), p2c (wybierz dwa, weź lżejszy), least-used (wygrywa najniższe obciążenie), random (jednolity, bez powtórzeń), strict-random (powtórzenia dozwolone), cost-optimized (najtańszy $ za zapytanie), headroom (najwięcej pozostałego limitu), reset-window (resetuje się najszybciej → użyj go), reset-aware (klasyfikacja wg resetu, krótkie najpierw), context-relay (przekazywanie długiego kontekstu), context-optimized (dopasowanie do rozmiaru kontekstu), lkgp (trzymaj się ostatniego sukcesu), auto (ocenianie na żywo na bazie 12 czynników), fusion (panel + sędzia → jedna odpowiedź), pipeline (każde wyjście zasila kolejne)."/>
+<img src="../../../docs/diagrams/strategies-grid.svg" width="100%" alt="Wszystkie 19 strategii routingu komba w formie animowanej, w tym cache-optimized oraz strategie wyboru, kwot, kontekstu, automatycznego scoringu, fusion i pipeline."/>
 
-<sub>Silnik Auto-Combo ocenia każdego kandydata na podstawie **12 czynników** (stan techniczny, limit, koszt, opóźnienie, wskaźnik sukcesu, aktualność…) — zobacz [`docs/routing/AUTO-COMBO.md`](docs/routing/AUTO-COMBO.md).</sub>
+<sub>Silnik Auto-Combo ocenia każdego kandydata na podstawie **13 czynników** (stan techniczny, limit, koszt, opóźnienie, wskaźnik sukcesu, świeżość, affinity…) — zobacz [`docs/routing/AUTO-COMBO.md`](docs/routing/AUTO-COMBO.md).</sub>
 
 ### ⚖️ Quota-Share — podziel jedną subskrypcję w zespole ✨ NOWOŚĆ
 
@@ -228,11 +229,11 @@ Wszystkie **18** strategii — łącz i dopasowuj na każdym kroku komba:
 
 | Funkcja                                                   | OmniRoute                                                                                          | Inne routery  |
 | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ------------- |
-| 🌐 Dostawcy                                               | **268**                                                                                            | 20–100        |
-| 🆓 Darmowi dostawcy                                       | **90+ (40+ darmowych na zawsze)**                                                                  | 1–5           |
-| 🔀 Strategie routingu                                     | **18** (priorytetowa, ważona, zoptymalizowana pod kątem kosztów, przekazywanie kontekstu, fusion…) | 1–3           |
+| 🌐 Dostawcy                                               | **329 wpisów katalogu**                                                                            | 20–100        |
+| 🆓 Free/no-auth                                           | **155 wpisy katalogu**                                                                             | 1–5           |
+| 🔀 Strategie routingu                                     | **19** (priorytetowa, ważona, zoptymalizowana pod kątem kosztów, przekazywanie kontekstu, fusion…) | 1–3           |
 | 🗜️ Kompresja tokenów                                      | **Kaskadowa RTK + Caveman (15–95%)**                                                               | Brak / 20–40% |
-| 🧰 Wbudowany serwer MCP                                   | **104 narzędzia, 3 protokoły transportowe, 31 zakresów**                                           | Rzadkość      |
+| 🧰 Wbudowany serwer MCP                                   | **107 narzędzia, 3 protokoły transportowe, 32 zakresów**                                           | Rzadkość      |
 | 🤝 Protokół agenta A2A                                    | **6 umiejętności, JSON-RPC 2.0**                                                                   | Brak          |
 | 🧠 Pamięć (FTS5 + wektorowa)                              | **Tak**                                                                                            | Rzadkość      |
 | 🛡️ Barierki ochronne (PII, wstrzykiwanie promptów, wizja) | **Tak**                                                                                            | Rzadkość      |
@@ -266,7 +267,7 @@ Wszystkie **18** strategii — łącz i dopasowuj na każdym kroku komba:
 - **🛡️ Bezpieczeństwo** — ochrona przed wstrzykiwaniem promptów (prompt-injection guard) na każdej trasie LLM (zestaw testów red-team) + darmowe wyszukiwanie w sieci DuckDuckGo jako ostatnia deska ratunku. → [Barierki ochronne](../../../docs/security/GUARDRAILS.md)
 - **🖼️ Nowe punkty końcowe** — `/v1/ocr` (Mistral OCR) i `/v1/audio/translations` (w stylu Whisper) uzupełniają obsługę multimediów. → [Referencja API](docs/reference/API_REFERENCE.md)
 - **🌍 Wdrożenie i administracja** — `basePath` dla reverse-proxy, automatyczne wykrywanie języka przeglądarki, śledzenie urządzeń na klucz, zaufanie MITM bez uprawnień roota, lokalizacja zh-TW. → [Środowisko](docs/reference/ENVIRONMENT.md)
-- **🤝 Więcej dostawców i agentów** — Cursor Cloud Agent, Grok Build (xAI), pełnoprawna karta Ollama, Claude Sonnet 5, Zed, Requesty, SenseNova, Yuanbao… oraz odświeżony katalog 250 dostawców. → [Dostawcy](../../../docs/reference/PROVIDER_REFERENCE.md)
+- **🤝 Więcej dostawców i agentów** — Cursor Cloud Agent, Grok Build (xAI), pełnoprawna karta Ollama, Claude Sonnet 5, Zed, Requesty, SenseNova, Yuanbao… oraz odświeżony katalog 329 wpisów. → [Dostawcy](../../../docs/reference/PROVIDER_REFERENCE.md)
 - **⚡ Lokalna wydajność i infrastruktura** — uruchamianie lokalnego Redis jednym kliknięciem, instalatory przekaźników dla Cloudflare Workers / Deno Deploy, Bifrost i Mux jako nadzorowane usługi wbudowane. → [Usługi wbudowane](../../../docs/frameworks/EMBEDDED-SERVICES.md)
 
 <br/>
@@ -325,11 +326,11 @@ Wszystkie **18** strategii — łącz i dopasowuj na każdym kroku komba:
 
 <div align="center">
 
-# 🌐 268 dostawców AI — ponad 90 darmowych
+# 🌐 329 wpisów katalogu AI — 155 free/no-auth
 
 </div>
 
-> Najbardziej kompletny katalog spośród wszystkich routerów open-source: **268 dostawców**, **ponad 90 z darmowym pakietem**, **ponad 40 darmowych na zawsze**.
+> Najbardziej kompletny katalog spośród wszystkich routerów open-source: **329 wpisów dostawców**, w tym **155 oznaczone free/no-auth**. Oznaczenie katalogowe nie oznacza bezterminowego ani nieograniczonego dostępu — warunki, limity, regiony, KYC i ToS zależą od dostawcy.
 
 <div align="center">
 
@@ -364,12 +365,12 @@ Wszystkie **18** strategii — łącz i dopasowuj na każdym kroku komba:
 
 <br/>
 
-### 🆓 Darmowe na zawsze — 0 USD, bez karty
+### 🆓 Udokumentowany dostęp bezpłatny — 0 USD tam, gdzie tak oznaczono
 
 <table>
   <tr>
     <td align="center" width="127"><img src="../../../public/providers/agentrouter.png" width="44" alt="AgentRouter"/><br/><b>AgentRouter</b><br/><sub>GPT-5, Claude, Gemini<br/>100 USD darmowych kredytów</sub><br/><sub>                                     </sub></td>
-    <td align="center" width="127"><img src="https://cdn.jsdelivr.net/npm/@lobehub/icons-static-svg@1.91.0/icons/qoder-color.svg" width="44" alt="Qoder AI"/><br/><b>Qoder AI</b><br/><sub>Kimi-K2, DeepSeek-R1<br/>Nielimitowane DARMOWE</sub><br/><sub>                                     </sub></td>
+    <td align="center" width="127"><img src="https://cdn.jsdelivr.net/npm/@lobehub/icons-static-svg@1.91.0/icons/qoder-color.svg" width="44" alt="Qoder AI"/><br/><b>Qoder AI</b><br/><sub>Kimi-K2, DeepSeek-R1<br/>Bezpłatny dostęp; limity zależą od planu</sub><br/><sub>                                     </sub></td>
     <td align="center" width="127"><picture><source media="(prefers-color-scheme:dark)" srcset="https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@1.91.0/dark/pollinations.png"/><img src="https://cdn.jsdelivr.net/npm/@lobehub/icons-static-svg@1.91.0/icons/pollinations.svg" width="44" alt="Pollinations"/></picture><br/><b>Pollinations</b><br/><sub>GPT-5, Claude, Llama 4<br/>Klucz nie jest wymagany</sub><br/><sub>                                     </sub></td>
     <td align="center" width="127"><img src="https://cdn.jsdelivr.net/npm/@lobehub/icons-static-svg@1.91.0/icons/longcat-color.svg" width="44" alt="LongCat"/><br/><b>LongCat</b><br/><sub>LongCat-2.0<br/>10M tokenów jednorazowo (KYC) 🔑</sub><br/><sub>                                     </sub></td>
     <td align="center" width="127"><img src="https://cdn.jsdelivr.net/npm/@lobehub/icons-static-svg@1.91.0/icons/cloudflare-color.svg" width="44" alt="Cloudflare AI"/><br/><b>Cloudflare AI</b><br/><sub>Ponad 50 modeli<br/>10K neuronów/dzień</sub><br/><sub>                                     </sub></td>
@@ -464,7 +465,7 @@ Udostępnij OmniRoute przez **MCP** lub **A2A**, a każdy zdolny do tego agent a
 | Protokół           | Punkt końcowy                                   | Zastosowanie                                                        |
 | ------------------ | ----------------------------------------------- | ------------------------------------------------------------------- |
 | 🧰 **MCP (stdio)** | `omniroute --mcp`                               | Podłącz do Claude Desktop, Cursor, dowolnego klienta MCP            |
-| 🌊 **MCP (HTTP)**  | `http://localhost:20128/api/mcp/stream`         | Zdalny MCP — **104 narzędzia**, 31 zakresów, pełna ścieżka audytu   |
+| 🌊 **MCP (HTTP)**  | `http://localhost:20128/api/mcp/stream`         | Zdalny MCP — **107 narzędzia**, 32 zakresów, pełna ścieżka audytu   |
 | 📡 **MCP (SSE)**   | `http://localhost:20128/api/mcp/sse`            | Strumieniowy transport MCP                                          |
 | 🤝 **A2A**         | `http://localhost:20128/.well-known/agent.json` | Komunikacja agent-do-agenta, **JSON-RPC 2.0** + SSE, 6 umiejętności |
 
@@ -483,24 +484,26 @@ claude mcp add-server omniroute --type http --url http://localhost:20128/api/mcp
 
 </div>
 
-> **Po co używać wielu tokenów, skoro kilka wystarczy?** Każde żądanie przechodzi przez potok kompresji OmniRoute w sposób **przezroczysty** — bez zmian po stronie klienta. Jest to teraz **stos 11 modułowych silników**, które działają po kolei i mogą być dowolnie łączone w ramach każdego komba routingu — bazując na pomysłach z [RTK](https://github.com/rtk-ai/rtk), [Caveman](https://github.com/JuliusBrussee/caveman) (⭐ 90k+), [LLMLingua-2](https://github.com/microsoft/LLMLingua) i [Troglodita](https://github.com/leninejunior/troglodita) (PT-BR).
+> **Po co używać wielu tokenów, skoro kilka wystarczy?** Każde żądanie przechodzi przez potok kompresji OmniRoute w sposób **przezroczysty** — bez zmian po stronie klienta. Jest to teraz **stos 12 modułowych silników**, które działają po kolei i mogą być dowolnie łączone w ramach każdego komba routingu — bazując na pomysłach z [RTK](https://github.com/rtk-ai/rtk), [Caveman](https://github.com/JuliusBrussee/caveman) (⭐ 90k+), [LLMLingua-2](https://github.com/microsoft/LLMLingua) i [Troglodita](https://github.com/leninejunior/troglodita) (PT-BR).
 
-### 🧱 Stos 11 silników
+### 🧱 Stos 12 silników
 
 Silniki działają w kolejności potoku; każdy z nich można niezależnie włączać i konfigurować dla poszczególnych komb:
 
-| #   | Silnik            | Co robi                                                                                                                                              |
-| --- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | **Session-Dedup** | Odrzuca treści powtarzające się między kolejnymi turami (adresowane treścią, międzyturowe)                                                           |
-| 2   | **CCR**           | Archiwizuje duże bloki pod znacznikami pobierania, pobieranymi na żądanie                                                                            |
-| 3   | **RTK**           | Inteligentne filtrowanie, deduplikacja i skracanie wyników narzędzi (z uwzględnieniem poleceń)                                                       |
-| 4   | **Headroom**      | Bezstratne upakowanie tabelaryczne jednorodnych tablic JSON, płaskich lub zagnieżdżonych (~30%), poprzez wbudowany kodek **GCF** (specyfikacja v3.2) |
-| 5   | **Relevance**     | Ekstrakcyjne ocenianie zdań pod kątem dopasowania do ostatniego zapytania użytkownika                                                                |
-| 6   | **Caveman**       | Kompresja prozy oparta na regułach (~65–75% na wyjściu)                                                                                              |
-| 7   | **LLMLingua-2**   | Semantyczne przycinanie oparte na uczeniu maszynowym przez MobileBERT ONNX — bezpieczne dla kodu, asynchroniczne                                     |
-| 8   | **Lite**          | Usuwanie białych znaków i skracanie adresów URL obrazów (lekki pod kątem opóżeń punkt odniesienia)                                                   |
-| 9   | **Aggressive**    | Streszczanie + stopniowe "starzenie" starych tur                                                                                                     |
-| 10  | **Ultra**         | Heurystyczne przycinanie tokenów z opcjonalnym poziomem małego modelu (SLM)                                                                          |
+| #   | Silnik                    | Co robi                                                                                                   |
+| --- | ------------------------- | --------------------------------------------------------------------------------------------------------- |
+| 1   | **Session-Dedup**         | Odrzuca treści powtarzające się między kolejnymi turami (adresowane treścią, międzyturowe)                |
+| 2   | **CCR**                   | Archiwizuje duże bloki pod znacznikami pobierania, pobieranymi na żądanie                                 |
+| 3   | **Lite**                  | Usuwanie białych znaków i skracanie adresów URL obrazów (lekki pod kątem opóźnień punkt odniesienia)      |
+| 4   | **RTK**                   | Inteligentne filtrowanie, deduplikacja i skracanie wyników narzędzi (z uwzględnieniem poleceń)            |
+| 5   | **Responses Tool Output** | Bezstratna kompresja JSON i ograniczanie diagnostyki dla wyników shell/patch/search/build w Responses API |
+| 6   | **Headroom**              | Bezstratne upakowanie tabelaryczne jednorodnych tablic JSON (~30%) poprzez wbudowany kodek **GCF**        |
+| 7   | **Relevance**             | Ekstrakcyjne ocenianie zdań pod kątem dopasowania do ostatniego zapytania użytkownika                     |
+| 8   | **Caveman**               | Kompresja prozy oparta na regułach (~65–75% na wyjściu)                                                   |
+| 9   | **Aggressive**            | Streszczanie + stopniowe "starzenie" starych tur                                                          |
+| 10  | **LLMLingua-2**           | Semantyczne przycinanie oparte na MobileBERT ONNX — bezpieczne dla kodu, asynchroniczne                   |
+| 11  | **Ultra**                 | Heurystyczne przycinanie tokenów z opcjonalnym poziomem małego modelu (SLM)                               |
+| 12  | **OmniGlyph**             | Eksperymentalne kodowanie kontekstu jako obrazu, przeznaczone wyłącznie do świadomego włączenia           |
 
 Bloki kodu, adresy URL i dane strukturyzowane są **zawsze zachowywane** z dokładnością co do bajtu. Presety uruchamiane jednym kliknięciem łączą te silniki:
 
@@ -533,7 +536,7 @@ Bloki kodu, adresy URL i dane strukturyzowane są **zawsze zachowywane** z dokł
 
 ### 📖 Jak to działa — potok, architektura i matematyka oszczędności
 
-<img src="../../../docs/diagrams/compression-pipeline.svg" width="100%" alt="Potok kompresji OmniRoute: żądanie klienta o rozmiarze 10 000 tokenów przechodzi przez 11 ułożonych kaskadowo silników — Session-Dedup, CCR, RTK, Headroom, Relevance, Caveman, LLMLingua-2, Omniglyph, Lite, Aggressive, Ultra — i dociera do dostawcy mając około 1080 tokenów, co daje do 95% oszczędności. Kod, adresy URL i JSON są zawsze zachowywane z dokładnością co do bajtu."/>
+<img src="../../../docs/diagrams/compression-pipeline.svg" width="100%" alt="Potok kompresji OmniRoute: żądanie klienta o rozmiarze 10 000 tokenów przechodzi przez 12 ułożonych kaskadowo silników — Session-Dedup, CCR, Lite, RTK, Responses Tool Output, Headroom, Relevance, Caveman, Aggressive, LLMLingua-2, Ultra, OmniGlyph — i dociera do dostawcy mając około 1080 tokenów, co daje do 95% oszczędności. Kod, adresy URL i JSON są zawsze zachowywane z dokładnością co do bajtu."/>
 
 Domyślne kaskadowe kombo uruchamia `RTK → Caveman`. Gdy oba silniki działają na tym samym ładunku narzędzia/kontekstu, oszczędności się kumulują:
 
@@ -816,7 +819,7 @@ W celu uzyskania najszybszej instalacji preferuj **pnpm** (magazyn adresowany tr
 | [Format reguł kompresji](../../../docs/compression/COMPRESSION_RULES_FORMAT.md)       | Schematy JSON pakietów reguł dla filtrów Caveman i RTK                                                    |
 | [Pakiety językowe kompresji](../../../docs/compression/COMPRESSION_LANGUAGE_PACKS.md) | Wykrywanie języka i tworzenie pakietów reguł Caveman                                                      |
 | [Podręcznik odporności](../../../docs/architecture/RESILIENCE_GUIDE.md)               | Wyłączniki awaryjne, czasy schładzania, kolejka, ochrona przed kumulacją zapytań, podszywanie się pod TLS |
-| [Silnik Auto-Combo](docs/routing/AUTO-COMBO.md)                                       | Ocenianie na bazie 12 czynników, pakiety trybów, samonaprawianie                                          |
+| [Silnik Auto-Combo](docs/routing/AUTO-COMBO.md)                                       | Ocenianie na bazie 13 czynników, pakiety trybów, samonaprawianie                                          |
 | [Podręcznik proxy](../../../docs/ops/PROXY_GUIDE.md)                                  | 3-poziomowy system proxy, rynek 1proxy, rejestr CRUD                                                      |
 | [Darmowe poziomy](../../../docs/reference/FREE_TIERS.md)                              | Skonsolidowany katalog ponad 25 darmowych dostawców API                                                   |
 | [Galeria funkcji](docs/guides/FEATURES.md)                                            | Wizualny przegląd panelu ze zrzutami ekranu                                                               |
@@ -828,7 +831,7 @@ W celu uzyskania najszybszej instalacji preferuj **pnpm** (magazyn adresowany tr
 | ------------------------------------------------------- | --------------------------------------------------------------------------- |
 | [Referencja API](docs/reference/API_REFERENCE.md)       | Wszystkie punkty końcowe z przykładami                                      |
 | [Specyfikacja OpenAPI](../../../docs/openapi.yaml)      | Specyfikacja OpenAPI 3.0                                                    |
-| [Serwer MCP](../../../open-sse/mcp-server/README.md)    | 104 narzędzia MCP, konfiguracje IDE, klienci Python/TS/Go                   |
+| [Serwer MCP](../../../open-sse/mcp-server/README.md)    | 107 narzędzia MCP, konfiguracje IDE, klienci Python/TS/Go                   |
 | [Podręcznik serwera MCP](docs/frameworks/MCP-SERVER.md) | Instalacja MCP, protokoły transportowe i referencja narzędzi                |
 | [Serwer A2A](../../../src/lib/a2a/README.md)            | Protokół JSON-RPC 2.0, umiejętności, strumieniowanie, zarządzanie zadaniami |
 | [Podręcznik serwera A2A](docs/frameworks/A2A-SERVER.md) | Karta agenta A2A, zadania, umiejętności i strumieniowanie                   |

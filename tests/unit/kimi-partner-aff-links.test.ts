@@ -32,11 +32,11 @@ test("kimi-coding (Kimi Code CLI) top-of-page link: the Kimi Coding Plan aff lin
   assert.equal(kimiCoding.website, KIMI_CODING_AFF_URL);
 });
 
-test("kimi-web (Kimi Web) top-of-page link: the Kimi Coding Plan aff link (was the bare kimi.com domain)", () => {
+test("kimi-web (Kimi Web) top-of-page link: points to www.kimi.ai", () => {
   const kimiWeb = providers.WEB_COOKIE_PROVIDERS["kimi-web"];
   assert.ok(kimiWeb, "kimi-web must still exist in the web-cookie catalog");
   assert.equal(kimiWeb.name, "Kimi Web", "display name is unchanged by the rename");
-  assert.equal(kimiWeb.website, KIMI_CODING_AFF_URL);
+  assert.equal(kimiWeb.website, "https://www.kimi.ai");
 });
 
 test("kimi-coding-apikey (hidden, folds into kimi-coding card) also carries the aff link", () => {

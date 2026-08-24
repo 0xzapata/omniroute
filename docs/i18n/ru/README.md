@@ -12,7 +12,7 @@
 
 # 🚀 OmniRoute — Бесплатный AI-шлюз
 
-### Код без остановок. Один endpoint — **278 провайдеров**, **90+ бесплатных**.
+### Код без остановок. Один endpoint — **329 провайдеров**, **155 free/no-auth**.
 
 **Claude Code, Codex, Cursor, Cline, Copilot и Antigravity → бесплатные Claude / GPT / Gemini с автопереключением.**
 
@@ -26,11 +26,11 @@
 
 <br/>
 
-[![278 AI Providers](https://img.shields.io/badge/278-AI_Providers-6C5CE7?style=for-the-badge)](#-278-ai-провайдеров--90-бесплатных)
-[![90+ Free](https://img.shields.io/badge/90%2B-Free_Tiers-00B894?style=for-the-badge)](#-278-ai-провайдеров--90-бесплатных)
+[![329 AI Providers](https://img.shields.io/badge/329-AI_Providers-6C5CE7?style=for-the-badge)](#-329-ai-провайдеров--155-free-no-auth)
+[![155 Free/No-Auth](https://img.shields.io/badge/155-Free%2FNo--Auth-00B894?style=for-the-badge)](#-329-ai-провайдеров--155-free-no-auth)
 [![1.53B Free Tokens/mo](https://img.shields.io/badge/1.53B-Free_Tokens%2Fmo-00B894?style=for-the-badge)](../../reference/FREE_TIERS.md)
 [![Token Savings](https://img.shields.io/badge/up_to_95%25-Token_Savings-E17055?style=for-the-badge)](#️-экономьте-1595-токенов--автоматически)
-[![18 Strategies](https://img.shields.io/badge/18-Routing_Strategies-0984E3?style=for-the-badge)](#-комбо--главная-фича)
+[![19 Strategies](https://img.shields.io/badge/19-Routing_Strategies-0984E3?style=for-the-badge)](#-комбо--главная-фича)
 [![$0 to start](https://img.shields.io/badge/%240-To_Start-FDCB6E?style=for-the-badge&logoColor=black)](#-быстрый-старт)
 
 <br/>
@@ -61,7 +61,7 @@
 
 <br/>
 
-[**🚀 Быстрый старт**](#-быстрый-старт) • [**🎯 Комбо**](#-комбо--главная-фича) • [**🌐 Провайдеры**](#-278-ai-провайдеров--90-бесплатных) • [**🔌 CLI и MCP**](#-полный-cli--a2a-и-mcp) • [**🗜️ Сжатие**](#️-экономьте-1595-токенов--автоматически) • [**🌍 Сайт**](https://omniroute.online)
+[**🚀 Быстрый старт**](#-быстрый-старт) • [**🎯 Комбо**](#-комбо--главная-фича) • [**🌐 Провайдеры**](#-329-ai-провайдеров--155-free-no-auth) • [**🔌 CLI и MCP**](#-полный-cli--a2a-и-mcp) • [**🗜️ Сжатие**](#️-экономьте-1595-токенов--автоматически) • [**🌍 Сайт**](https://omniroute.online)
 
 [💥 Обещание](#-обещание) • [🤔 Зачем](#-зачем-omniroute) • [🏆 Чем отличается](#-чем-omniroute-отличается) • [🤖 Совместимые CLI](#-совместимые-cli-и-агенты) • [🖥️ Где запускать](#️-где-запускается-omniroute--везде) • [🔒 Приватность](#-приватно-и-local-first) • [🎬 В деле](#-omniroute-в-деле) • [📚 Дальше](#-узнать-больше) • [📧 Поддержка](#-поддержка-и-сообщество)
 
@@ -75,11 +75,11 @@
 
 </div>
 
-> Собирать free-tier вручную — боль: десятки SDK, лимиты и непонятный остаток. OmniRoute сводит **документированные** free-tier **43 пулов / 460+ моделей** в одно честное число и показывает его live на `/dashboard/free-tiers`.
+> Собирать free-tier вручную — боль: десятки SDK, лимиты и непонятный остаток. OmniRoute показывает **155 записи каталога с меткой free/no-auth**; строго рассчитанный бюджет охватывает **43 пула / 522 бюджетные записи моделей** и отображается live на `/dashboard/free-tiers`.
 >
 > - **~1.53B free tokens / мес** (steady) — в первый месяц до **~2.15B** с signup-кредитами.
 > - **Честная математика** — каждый shared pool считается **один раз**. «Если крутить rate limit 24/7» выйдет ~10B — такие цифры мы **не** публикуем.
-> - **Отдельно** — навсегда бесплатные провайдеры без cap (SiliconFlow, Z.AI GLM-Flash, Kilo, OpenCode Zen…) и **+$10 OpenRouter** → **+24M/мес** (не раздувают headline).
+> - **Отдельно** — провайдеры без опубликованного token cap, но с rate/concurrency/account-ограничениями (SiliconFlow, Z.AI GLM-Flash, Kilo, OpenCode Zen…), и разовый top-up OpenRouter на $10 → **+24M/мес** (не раздувают headline).
 > - **По моделям**, used/remaining и пометки ToS — прямо в дашборде.
 
 > Методика (дедуп пулов, кредиты, ToS): **[docs/reference/FREE_TIERS.md](../../reference/FREE_TIERS.md)**. Цифры пересматривают примерно раз в две недели — могут и **упасть**, и **вырасти**. CI (`check:docs-counts`) падает, если headline расходится с каталогом.
@@ -92,18 +92,18 @@
 
 </div>
 
-> Один endpoint. **278 провайдеров.** Код не останавливается — OmniRoute сам выбирает самый дешёвый рабочий вариант.
+> Один endpoint. **329 провайдеров.** Код не останавливается — OmniRoute сам выбирает самый дешёвый рабочий вариант.
 
 <table>
   <tr>
-    <td width="33%" valign="top"><b>🚫 Не упирайтесь в лимиты</b><br/><sub>Авто-fallback по 278 провайдерам за миллисекунды. Квота кончилась — следующий подхватывает, без простоя.</sub></td>
+    <td width="33%" valign="top"><b>🛡️ Устойчивый fallback</b><br/><sub>При сбое upstream или исчерпании квоты OmniRoute пробует следующий допустимый маршрут; доступность зависит от провайдеров.</sub></td>
     <td width="33%" valign="top"><b>💸 До 95% токенов</b><br/><sub>RTK + Caveman stacked: 15–95% на сжимаемом (в tool-heavy сессиях в среднем ~89%).</sub></td>
-    <td width="33%" valign="top"><b>🆓 Старт с $0</b><br/><sub>90+ free-tier, 40+ free forever (Kiro, Qoder, Pollinations, LongCat…). Карта не нужна.</sub></td>
+    <td width="33%" valign="top"><b>🆓 Старт с $0</b><br/><sub>155 записей каталога помечены free/no-auth; условия и лимиты зависят от провайдера.</sub></td>
   </tr>
   <tr>
     <td width="33%" valign="top"><b>🔌 Все инструменты</b><br/><sub>26+ coding agents — Claude Code, Codex, Cursor, Cline, Copilot, Antigravity — один конфиг.</sub></td>
     <td width="33%" valign="top"><b>🧩 Один endpoint</b><br/><sub>OpenAI ↔ Claude ↔ Gemini ↔ Responses API. Укажите <code>/v1</code> — и готово.</sub></td>
-    <td width="33%" valign="top"><b>🛡️ Production-grade</b><br/><sub>Circuit breakers, TLS stealth, MCP (104 tools), A2A, memory, guardrails, evals. 25 000+ тестов.</sub></td>
+    <td width="33%" valign="top"><b>🛡️ Production-grade</b><br/><sub>Circuit breakers, TLS stealth, MCP (107 tools), A2A, memory, guardrails, evals. 25 000+ тестов.</sub></td>
   </tr>
 </table>
 
@@ -136,7 +136,7 @@
                           ▼
 ┌──────────────────────────────────────────────────────────┐
 │              OmniRoute — умный роутер                      │
-│  RTK + Caveman · 18 стратегий · circuit breakers          │
+│  RTK + Caveman · 19 стратегий · circuit breakers          │
 │  TLS stealth · MCP · A2A · guardrails                     │
 └─────────────────────────┬────────────────────────────────┘
         ┌─────────────┬────┴────────┬─────────────┐
@@ -144,7 +144,7 @@
      Подписка        API Key       Cheap         Free
    Claude Code,     DeepSeek,     GLM $0.5,     Kiro, Qoder,
    Codex, Copilot   Groq, xAI     MiniMax $0.2  Pollinations
-   квота? ───────▶  бюджет? ───▶  бюджет? ───▶  всегда online
+   квота? ───────▶  бюджет? ───▶  бюджет? ───▶  лимиты upstream
 ```
 
 </div>
@@ -157,7 +157,7 @@
 
 </div>
 
-> **Combo** — цепочка моделей, по которой OmniRoute ходит **сам**. Квота кончилась, провайдер упал, цена взлетела — комбо тихо уходит на следующий шаг. **Именно это делает OmniRoute «неубиваемым».** 🛡️
+> **Combo** — цепочка моделей, по которой OmniRoute ходит **сам**. Квота кончилась, провайдер упал, цена взлетела — комбо пробует следующий допустимый шаг. Это расширяет покрытие fallback, но не гарантирует доступность upstream. 🛡️
 
 ### ⚡ Без настройки — просто `auto`
 
@@ -172,30 +172,31 @@
 | `auto/offline` | 🔋 Максимум headroom по квоте / rate limit                 |
 | `auto/smart`   | 🔭 Качество + 10% exploration                              |
 
-### 🔀 Или соберите своё — 18 стратегий
+### 🔀 Или соберите своё — 19 стратегий
 
-| #   | Стратегия           | Что делает                                            |
-| --- | ------------------- | ----------------------------------------------------- |
-| 1   | `priority`          | Идёт по списку по порядку — выжимает каждый target 🥇 |
-| 2   | `fill-first`        | Сначала полностью заполняет квоту target              |
-| 3   | `weighted`          | Взвешенный random                                     |
-| 4   | `round-robin`       | Цикл по targets                                       |
-| 5   | `p2c`               | Power-of-two-choices load balancing                   |
-| 6   | `least-used`        | Наименьшая текущая нагрузка                           |
-| 7   | `random`            | Uniform random (с dedupe)                             |
-| 8   | `strict-random`     | Random без dedupe 🎲                                  |
-| 9   | `cost-optimized`    | Минимум $ за запрос из live pricing 💸                |
-| 10  | `headroom`          | Больше всего оставшейся квоты                         |
-| 11  | `reset-window`      | Чья квота reset ближе                                 |
-| 12  | `reset-aware`       | Ранг по reset — короткие окна первыми 📊              |
-| 13  | `context-relay`     | Передача контекста между targets 🧠                   |
-| 14  | `context-optimized` | Лучший fit под размер контекста                       |
-| 15  | `lkgp`              | Last-Known-Good Path — sticky к успеху                |
-| 16  | `auto`              | Live scoring по 12 факторам 🤖                        |
-| 17  | `fusion`            | Панель моделей + judge → один ответ 🧬                |
-| 18  | `pipeline`          | Цепочка: output шага N → input N+1 🔗                 |
+| #   | Стратегия           | Что делает                                                         |
+| --- | ------------------- | ------------------------------------------------------------------ |
+| 1   | `priority`          | Идёт по списку по порядку — выжимает каждый target 🥇              |
+| 2   | `fill-first`        | Сначала полностью заполняет квоту target                           |
+| 3   | `weighted`          | Взвешенный random                                                  |
+| 4   | `round-robin`       | Цикл по targets                                                    |
+| 5   | `p2c`               | Power-of-two-choices load balancing                                |
+| 6   | `least-used`        | Наименьшая текущая нагрузка                                        |
+| 7   | `random`            | Uniform random (с dedupe)                                          |
+| 8   | `strict-random`     | Random без dedupe 🎲                                               |
+| 9   | `cost-optimized`    | Минимум $ за запрос из live pricing 💸                             |
+| 10  | `headroom`          | Больше всего оставшейся квоты                                      |
+| 11  | `reset-window`      | Чья квота reset ближе                                              |
+| 12  | `reset-aware`       | Ранг по reset — короткие окна первыми 📊                           |
+| 13  | `context-relay`     | Передача контекста между targets 🧠                                |
+| 14  | `context-optimized` | Лучший fit под размер контекста                                    |
+| 15  | `cache-optimized`   | Закрепляет повторно используемый prefix prompt за тем же аккаунтом |
+| 16  | `lkgp`              | Last-Known-Good Path — sticky к успеху                             |
+| 17  | `auto`              | Live scoring по 13 факторам 🤖                                     |
+| 18  | `fusion`            | Панель моделей + judge → один ответ 🧬                             |
+| 19  | `pipeline`          | Цепочка: output шага N → input N+1 🔗                              |
 
-<sub>Auto-Combo scoring: **12 факторов** (health, quota, cost, latency, success rate, freshness…). Подробнее: [`docs/routing/AUTO-COMBO.md`](../../routing/AUTO-COMBO.md).</sub>
+<sub>Auto-Combo scoring: **13 факторов** (health, quota, cost, latency, success rate, freshness, cache affinity…). Подробнее: [`docs/routing/AUTO-COMBO.md`](../../routing/AUTO-COMBO.md).</sub>
 
 ### ⚖️ Quota-Share — одна подписка на команду ✨
 
@@ -223,8 +224,8 @@ Combo: "always-on"                         strategy: priority
   1. cc/claude-opus-4-7   ← подписка (сначала)
   2. cx/gpt-5.2-codex     ← вторая подписка
   3. glm/glm-4.7          ← cheap ($0.5–0.6/1M)
-  4. if/kimi-k2-thinking  ← free forever
-Итог: 4 уровня = почти нулевой downtime
+  4. if/kimi-k2-thinking  ← listed free access; rate limits may apply
+Итог: 4 уровня расширяют fallback; доступность upstream не гарантируется
 ```
 
 <sub>📖 [Auto-Combo](../../routing/AUTO-COMBO.md) · [Resilience Guide](../../architecture/RESILIENCE_GUIDE.md)</sub>
@@ -239,11 +240,11 @@ Combo: "always-on"                         strategy: priority
 
 | Фича                      | OmniRoute                              | Другие роутеры |
 | ------------------------- | -------------------------------------- | -------------- |
-| 🌐 Провайдеры             | **278**                                | 20–100         |
-| 🆓 Free                   | **90+ (40+ forever)**                  | 1–5            |
-| 🔀 Стратегии              | **18**                                 | 1–3            |
+| 🌐 Провайдеры             | **329**                                | 20–100         |
+| 🆓 Free/no-auth           | **155 записей каталога**               | 1–5            |
+| 🔀 Стратегии              | **19**                                 | 1–3            |
 | 🗜️ Сжатие токенов         | **RTK + Caveman (15–95%)**             | Нет / 20–40%   |
-| 🧰 MCP server             | **104 tools, 3 transports, 31 scopes** | Редко          |
+| 🧰 MCP server             | **107 tools, 3 transports, 32 scopes** | Редко          |
 | 🤝 A2A                    | **6 skills, JSON-RPC 2.0**             | Нет            |
 | 🧠 Memory (FTS5 + vector) | **Да**                                 | Редко          |
 | 🛡️ Guardrails             | **Да**                                 | Редко          |
@@ -297,30 +298,30 @@ Combo: "always-on"                         strategy: priority
 <b>＋ также</b> · Aider · Goose · Hermes · Kiro · Antigravity · Windsurf · AMP · <b>любой OpenAI-compatible tool</b>
 </div>
 
-<sub>📖 Setup 33 tools → [`docs/reference/CLI-TOOLS.md`](../../reference/CLI-TOOLS.md) · OpenCode plugin → [`@omniroute/opencode-provider`](https://www.npmjs.com/package/@omniroute/opencode-provider)</sub>
+<sub>📖 Setup 34 tools → [`docs/reference/CLI-TOOLS.md`](../../reference/CLI-TOOLS.md) · OpenCode plugin → [`@omniroute/opencode-provider`](https://www.npmjs.com/package/@omniroute/opencode-provider)</sub>
 
 <br/>
 
 <div align="center">
 
-# 🌐 278 AI-провайдеров — 90+ бесплатных
+# 🌐 329 AI-провайдеров — 155 free/no-auth
 
 </div>
 
-> Самый полный каталог среди open-source роутеров: **278 провайдеров**, **90+ free-tier**, **40+ free forever**.
+> Самый полный каталог среди open-source роутеров: **329 провайдеров**, включая **155 записи free/no-auth**.
 
-### 🆓 Free forever — $0, без карты
+### 🆓 Documented free access — $0 where listed, без карты
 
-| Провайдер         | Что даёт                                  |
-| ----------------- | ----------------------------------------- |
-| **AgentRouter**   | GPT-5, Claude, Gemini — $100 free credits |
-| **Qoder AI**      | Kimi-K2, DeepSeek-R1 — unlimited FREE     |
-| **Pollinations**  | GPT-5, Claude, Llama 4 — без ключа        |
-| **LongCat**       | LongCat-2.0 — 10M one-time (KYC)          |
-| **Cloudflare AI** | 50+ models — 10K neurons/day              |
-| **NVIDIA NIM**    | 129 models — ~40 RPM free                 |
-| **Cerebras**      | Qwen3 235B — 1M tokens/day                |
-| **Kiro**          | Claude Sonnet/Haiku — ~50 credits/mo      |
+| Провайдер         | Что даёт                                                        |
+| ----------------- | --------------------------------------------------------------- |
+| **AgentRouter**   | GPT-5, Claude, Gemini — $100 free credits                       |
+| **Qoder AI**      | Kimi-K2, DeepSeek-R1 — free access; daily/rate limits may apply |
+| **Pollinations**  | GPT-5, Claude, Llama 4 — без ключа                              |
+| **LongCat**       | LongCat-2.0 — 10M one-time (KYC)                                |
+| **Cloudflare AI** | 50+ models — 10K neurons/day                                    |
+| **NVIDIA NIM**    | 129 models — ~40 RPM free                                       |
+| **Cerebras**      | Qwen3 235B — 1M tokens/day                                      |
+| **Kiro**          | Claude Sonnet/Haiku — ~50 credits/mo                            |
 
 📖 Machine-readable catalog → [`docs/reference/PROVIDER_REFERENCE.md`](../../reference/PROVIDER_REFERENCE.md)
 
@@ -400,7 +401,7 @@ Scopes: `read` / `write` / `admin`. Process-spawning routes — только loo
 | Протокол           | Endpoint                                        | Зачем                                    |
 | ------------------ | ----------------------------------------------- | ---------------------------------------- |
 | 🧰 **MCP (stdio)** | `omniroute --mcp`                               | Claude Desktop, Cursor, любой MCP client |
-| 🌊 **MCP (HTTP)**  | `http://localhost:20128/api/mcp/stream`         | Remote MCP — **104 tools**, 31 scopes    |
+| 🌊 **MCP (HTTP)**  | `http://localhost:20128/api/mcp/stream`         | Remote MCP — **107 tools**, 32 scopes    |
 | 📡 **MCP (SSE)**   | `http://localhost:20128/api/mcp/sse`            | Streaming MCP                            |
 | 🤝 **A2A**         | `http://localhost:20128/.well-known/agent.json` | Agent-to-agent, JSON-RPC 2.0 + SSE       |
 
@@ -639,12 +640,12 @@ IDE/CLI: `http://localhost:20128/v1` · API Key: любая строка (есл
 
 <br/>
 
-| Tier                        | Примеры                                  | Стоимость   |
-| --------------------------- | ---------------------------------------- | ----------- |
-| 💳 **Subscription**         | Claude Code Pro / Codex / Copilot        | $10–200/мес |
-| 🔑 **API Key (free tiers)** | NVIDIA NIM, Cerebras, Groq               | **Free**    |
-| 💰 **Cheap**                | GLM ~$0.5/1M · MiniMax ~$0.2–0.3/1M      | Копейки     |
-| 🆓 **Free forever**         | Kiro, Qoder, Qwen, Pollinations, LongCat | **$0**      |
+| Tier                          | Примеры                                  | Стоимость           |
+| ----------------------------- | ---------------------------------------- | ------------------- |
+| 💳 **Subscription**           | Claude Code Pro / Codex / Copilot        | $10–200/мес         |
+| 🔑 **API Key (free tiers)**   | NVIDIA NIM, Cerebras, Groq               | **Free**            |
+| 💰 **Cheap**                  | GLM ~$0.5/1M · MiniMax ~$0.2–0.3/1M      | Копейки             |
+| 🆓 **Documented free access** | Kiro, Qoder, Qwen, Pollinations, LongCat | **$0 where listed** |
 
 **Playbook A — выжать подписку + cheap backup:**
 
@@ -658,7 +659,7 @@ Combo: "maximize-claude"
 **Playbook B — zero-cost coding:**
 
 ```txt
-Combo: "free-forever"
+Combo: "free-tier-fallback"
   1. if/kimi-k2-thinking
   2. qw/qwen3-coder-plus
 ```
@@ -689,9 +690,9 @@ Combo: "free-forever"
 
 <br/>
 
-**Routing:** 18 стратегий · task-aware · thinking budget · wildcards · system prompt injection.  
+**Routing:** 19 стратегий · task-aware · thinking budget · wildcards · system prompt injection.
 **Compatibility:** OpenAI ↔ Claude ↔ Gemini ↔ Responses · OAuth PKCE auto-refresh · multi-account · Batch + Files API.  
-**Protocols:** MCP (104 tools) · A2A · ACP · cloud agents.  
+**Protocols:** MCP (107 tools) · A2A · ACP · cloud agents.
 **Quality/ops:** Evals · guardrails (PII, injection) · health · p50/p95/p99 · webhooks · audit.  
 **Media:** embeddings, images, video, music, STT/TTS, OCR, moderations, rerank.
 
@@ -711,7 +712,7 @@ Combo: "free-forever"
 | `STREAM_IDLE_TIMEOUT_MS` | inherits       | Idle gap SSE               |
 
 **OmniRoute берёт деньги?** Нет — open-source на вашей машине. Платите только платным провайдерам.  
-**Free правда unlimited?** Часто да (Qoder, Pollinations…). Kiro — free, но ~50 credits/mo. Комбо из нескольких free = zero-cost устойчивость.  
+**Free правда unlimited?** Нет гарантии: даже без опубликованного token cap действуют rate/concurrency/account/region limits и условия провайдера. Комбо из нескольких free/no-auth записей повышает устойчивость, но не отменяет эти ограничения.
 **Сжатие портит качество?** Сжимается **input**; code/URL/JSON protected.  
 **Регион заблокирован?** Proxy + stealth.
 

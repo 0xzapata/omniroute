@@ -50,6 +50,16 @@ test("a chunk with the placeholder mixed into real text strips it (trim only aff
   );
 });
 
+test("standalone whitespace-only chunks pass through byte-for-byte when no placeholder is present", () => {
+  for (const chunk of [" ", "\t", "\n", "\n\n", "\r\n"]) {
+    assert.equal(
+      stripInternalReasoningPlaceholder(chunk),
+      chunk,
+      `expected ${JSON.stringify(chunk)} to remain unchanged`
+    );
+  }
+});
+
 test("an empty string stays empty", () => {
   assert.equal(stripInternalReasoningPlaceholder(""), "");
 });

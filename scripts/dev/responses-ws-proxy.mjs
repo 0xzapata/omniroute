@@ -317,6 +317,17 @@ function getAuthHeaders(requestUrl, requestHeaders) {
   if (isText(requestHeaders["x-forwarded-for"])) {
     headers["x-forwarded-for"] = requestHeaders["x-forwarded-for"];
   }
+  for (const key of [
+    "session-id",
+    "session_id",
+    "x-codex-installation-id",
+    "x-codex-window-id",
+    "x-codex-turn-metadata",
+    "originator",
+    "user-agent",
+  ]) {
+    if (isText(requestHeaders[key])) headers[key] = requestHeaders[key];
+  }
   return headers;
 }
 
@@ -608,6 +619,7 @@ class ResponsesWsSession {
       const error = new Error(message2);
       error.code = code;
       error.status = prepared.status;
+      if (code === "responses_websocket_http_fallback") error.httpFallback = true;
       throw error;
     }
 
@@ -729,6 +741,21 @@ class ResponsesWsSession {
       }
       this.upstream.send(jsonStringifySafe(message));
     } catch (error) {
+      if (error?.httpFallback) {
+        const failurePayload = this.sendFailure(
+          "responses_websocket_http_fallback",
+          "Retry this request over HTTP/SSE Responses"
+        );
+        void this.persistHistory({
+          status: 426,
+          success: false,
+          errorCode: "responses_websocket_http_fallback",
+          errorMessage: "HTTP/SSE Responses transport required",
+          terminalMessage: failurePayload,
+        });
+        this.close(1013, "http_fallback_required");
+        return;
+      }
       const code = error?.code || "upstream_websocket_connect_failed";
       const messageText = error instanceof Error ? error.message : String(error);
       const failurePayload = this.sendFailure(code, messageText);

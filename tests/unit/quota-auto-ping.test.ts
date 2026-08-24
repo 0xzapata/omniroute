@@ -60,6 +60,7 @@ function baseDeps(overrides = {}) {
       };
     },
     canExecuteProvider: () => true,
+    isConnectionUnavailableToAuxiliaryActivity: async () => false,
     ...overrides,
   };
   return { deps, calls };
@@ -110,6 +111,44 @@ test("#6977 sends a ping once the session resetAt slides forward", async () => {
   assert.equal(id, "codex-1");
   assert.equal(data.lastPingedResetKey, "2026-01-01T17:01:00.000Z");
   assert.equal(typeof data.lastPingAt, "string");
+});
+
+test("hard lease isolation skips an ACTIVE leased connection before quota or executor I/O", async () => {
+  let usageCalls = 0;
+  const { deps, calls } = baseDeps({
+    isConnectionUnavailableToAuxiliaryActivity: async () => true,
+    getCodexUsage: async () => {
+      usageCalls += 1;
+      throw new Error("unexpected quota provider call");
+    },
+  });
+  const state = createQuotaAutoPingState();
+  state.resetCache["codex:codex-1"] = "2026-01-01T17:00:00.000Z";
+
+  await runQuotaAutoPingTick(deps, state, () => NOW_MS);
+
+  assert.equal(usageCalls, 0);
+  assert.equal(calls.getExecutor.length, 0);
+  assert.equal(calls.updateProviderConnection.length, 0);
+});
+
+test("hard lease isolation excludes a FREE lease-only connection from background model pings", async () => {
+  let usageCalls = 0;
+  const { deps, calls } = baseDeps({
+    isConnectionUnavailableToAuxiliaryActivity: async () => true,
+    getCodexUsage: async () => {
+      usageCalls += 1;
+      throw new Error("unexpected quota provider call");
+    },
+  });
+  const state = createQuotaAutoPingState();
+  state.resetCache["codex:codex-1"] = "2026-01-01T17:00:00.000Z";
+
+  await runQuotaAutoPingTick(deps, state, () => NOW_MS);
+
+  assert.equal(usageCalls, 0);
+  assert.equal(calls.getExecutor.length, 0);
+  assert.equal(calls.updateProviderConnection.length, 0);
 });
 
 test("#6977 does not ping when resetAt is stable (no slide)", async () => {

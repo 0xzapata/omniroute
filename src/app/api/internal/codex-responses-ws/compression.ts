@@ -20,6 +20,7 @@
 import { logger } from "@omniroute/open-sse/utils/logger.ts";
 import { estimateTokens } from "@omniroute/open-sse/services/contextManager.ts";
 import { adaptBodyForCompression } from "@omniroute/open-sse/services/compression/bodyAdapter.ts";
+import { resolveOmniGlyphTransport } from "@omniroute/open-sse/services/compression/imageTransportPolicy.ts";
 import type {
   CompressionConfig,
   CompressionResult,
@@ -86,8 +87,8 @@ export async function applyResponsesWsCompression(
 
     const result = await applyCompressionAsync(adapter.body, mode, {
       model: ctx.model,
-      providerTransport:
-        ctx.provider === "anthropic" || ctx.provider === "claude" ? "direct" : "aggregator",
+      ...resolveOmniGlyphTransport(ctx.provider),
+      provider: ctx.provider,
       config: settings as CompressionConfig,
       cachingContext,
     });

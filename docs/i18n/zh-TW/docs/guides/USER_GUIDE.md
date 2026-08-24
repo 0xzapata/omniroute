@@ -54,8 +54,8 @@ lastUpdated: 2026-06-28
 | **💰 便宜方案** | GLM-4.7           | $0.6/百萬  | 每日上午 10 點 | 預算備用           |
 |                 | MiniMax M2.1      | $0.2/百萬  | 5 小時滾動     | 最便宜的選擇       |
 |                 | Kimi K2           | $9/月固定  | 每月 1,000 萬  | 可預測成本         |
-| **🆓 免費方案** | Qoder             | $0         | 無限制         | 8 個模型免費       |
-|                 | Qwen              | $0         | 無限制         | 3 個模型免費       |
+| **🆓 免費方案** | Qoder             | $0         | 未公布 Token 上限；仍有提供者限制 | 8 個模型免費 |
+|                 | Qwen              | $0         | 未公布 Token 上限；仍有提供者限制 | 3 個模型免費 |
 |                 | Kiro              | $0         | 約 50 點/月    | Claude 免費使用    |
 
 ---
@@ -81,8 +81,8 @@ vs. $20 + 碰到限制 = 挫折感
 **問題：** 負擔不起訂閱，需要可靠的 AI 編碼
 
 ```
-Combo：「free-forever」
-  1. if/kimi-k2.7-code          （無限制免費）
+Combo：「free-tier-fallback」
+  1. if/kimi-k2.7-code          （未公布 Token 上限；限制仍適用）
   2. kr/qwen3-coder-next        （Kiro 免費備援）
 
 每月費用：$0
@@ -99,9 +99,9 @@ Combo：「always-on」
   2. cx/gpt-5.5                （第二訂閱）
   3. glm/glm-4.7               （便宜，每日重置）
   4. minimax/MiniMax-M2.1      （最便宜，5 小時重置）
-  5. if/deepseek-v4-flash       （免費無限制）
+  5. if/deepseek-v4-flash       （未公布 Token 上限；限制仍適用）
 
-結果：5 層備援 = 零停機
+結果：5 層備援可擴大韌性；上游可用性不保證
 每月費用：$20-200（訂閱）+ $10-20（備援）
 ```
 
@@ -111,9 +111,9 @@ Combo：「always-on」
 
 ```
 Combo：「openclaw-free」
-  1. if/qwen3.8-max-preview     （無限制免費）
-  2. if/deepseek-v4-flash       （無限制免費）
-  3. if/kimi-k2.7-code          （無限制免費）
+  1. if/qwen3.8-max-preview     （未公布 Token 上限；限制仍適用）
+  2. if/deepseek-v4-flash       （未公布 Token 上限；限制仍適用）
+  3. if/kimi-k2.7-code          （未公布 Token 上限；限制仍適用）
 
 每月費用：$0
 可透過：WhatsApp、Telegram、Slack、Discord、iMessage、Signal...
@@ -213,7 +213,7 @@ Haiku 模型不接受 `max` 思考強度層級，因此 OmniRoute 會在將請�
 #### Qoder（9 個免費模型）
 
 ```bash
-控制台 → 連接 Qoder → OAuth 登入 → 無限制使用
+控制台 → 連接 Qoder → OAuth 登入 → 依提供者目前條件使用
 
 模型：if/qwen3.8-max-preview, if/qwen3.7-max, if/qwen3.7-plus, if/kimi-k3, if/kimi-k2.7-code, if/glm-5.2, if/deepseek-v4-pro, if/deepseek-v4-flash, if/minimax-m3
 ```
@@ -251,10 +251,10 @@ Haiku 模型不接受 `max` 思考強度層級，因此 OmniRoute 會在將請�
 ```
 名稱：free-combo
 模型：
-  1. if/kimi-k2.7-code（無限制）
+  1. if/kimi-k2.7-code（未公布 Token 上限；限制仍適用）
   2. kr/qwen3-coder-next（Kiro 免費備援）
 
-費用：永遠 $0！
+費用：目前目錄記錄為 $0；條件與可用性可能變更
 ```
 
 ---
@@ -1088,7 +1088,7 @@ OmniRoute 既是 **MCP 伺服器**（模型上下文協定），也是 **A2A 伺
 
 ### 範圍
 
-MCP 工具分為 10 個範圍：`analytics`、`auth`、`billing`、`combos`、`health`、`keys`、`memory`、`models`、`providers`、`system`。每個 Bearer 金鑰可以限制在特定範圍內 — 完整工具目錄請參閱 [MCP-SERVER.md](../frameworks/MCP-SERVER.md)，JSON-RPC 架構請參閱 [A2A-SERVER.md](../frameworks/A2A-SERVER.md)。
+MCP 目前定義 32 個具名範圍。每個 Bearer 金鑰可以限制在特定範圍內；權威範圍與工具清單請參閱 [MCP-SERVER.md](../frameworks/MCP-SERVER.md)，JSON-RPC 架構請參閱 [A2A-SERVER.md](../frameworks/A2A-SERVER.md)。
 
 ---
 

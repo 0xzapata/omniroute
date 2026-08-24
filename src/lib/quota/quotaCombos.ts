@@ -205,6 +205,10 @@ export async function syncQuotaCombos(poolId: string): Promise<void> {
     }));
     try {
       const existing = await getComboByName(comboName);
+      // A pool may be deleted while this fire-and-forget sync is awaiting combo
+      // lookups. Re-check immediately before the synchronous DB upsert so stale
+      // create/update work cannot recreate managed combos after delete cleanup.
+      if (!getPool(poolId)) return;
       const payload = {
         name: comboName,
         models: steps,
