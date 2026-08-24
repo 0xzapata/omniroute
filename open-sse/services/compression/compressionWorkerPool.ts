@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
 import type { CompressionResult } from "./types.ts";
 import type { StackedCompressionStep } from "./strategySelector.ts";
@@ -15,11 +15,18 @@ function positiveInteger(value: string | undefined, fallback: number): number {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 function workerUrl(): URL {
-  const dir = dirname(fileURLToPath(import.meta.url));
+  const moduleDir = dirname(fileURLToPath(import.meta.url));
+  const rootDir = dirname(resolve(process.argv[1] ?? process.cwd()));
   for (const name of ["compressionWorker.js", "compressionWorker.ts"]) {
-    if (existsSync(join(dir, name))) return new URL(name, import.meta.url);
+    for (const candidate of [
+      join(moduleDir, name),
+      join(rootDir, "open-sse", "services", "compression", name),
+      resolve(process.cwd(), "open-sse", "services", "compression", name),
+    ]) {
+      if (existsSync(candidate)) return pathToFileURL(candidate);
+    }
   }
-  return new URL("compressionWorker.js", import.meta.url);
+  return pathToFileURL(join(rootDir, "open-sse", "services", "compression", "compressionWorker.js"));
 }
 function unchanged(body: Record<string, unknown>): CompressionResult {
   return { body, compressed: false, stats: null };
