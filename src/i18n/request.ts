@@ -1,7 +1,7 @@
 import { getRequestConfig } from "next-intl/server";
 import { cookies, headers } from "next/headers";
-import { LOCALES, DEFAULT_LOCALE, LOCALE_COOKIE } from "./config";
-import type { Locale } from "./config";
+import { LOCALES, DEFAULT_LOCALE, LOCALE_COOKIE, LOCALE_ALIASES } from "./config";
+import { resolveRequestedLocale } from "./resolveRequestedLocale";
 
 const FALLBACK_LOCALE = "en";
 
@@ -129,9 +129,7 @@ export default getRequestConfig(async () => {
     locale = headerStore.get("x-locale") || "";
   }
 
-  if (!LOCALES.includes(locale as Locale)) {
-    locale = DEFAULT_LOCALE;
-  }
+  locale = resolveRequestedLocale(locale, LOCALES, LOCALE_ALIASES, DEFAULT_LOCALE);
 
   const localeMessages = normalizeComplianceEventTypes(
     (await import(`./messages/${locale}.json`)).default as Record<string, unknown>

@@ -4,9 +4,8 @@ import {
   getProxyForLevel,
   deleteProxyForLevel,
   resolveProxyForConnection,
-  getProxyAssignments,
-  getProxyById,
-} from "../../../../lib/localDb";
+} from "@/lib/db/settings";
+import { getProxyAssignments, getProxyById } from "@/lib/db/proxies";
 import { clearDispatcherCache } from "@omniroute/open-sse/utils/proxyDispatcher";
 import { updateProxyConfigSchema } from "@/shared/validation/schemas";
 import { isValidationFailure, validateBody } from "@/shared/validation/helpers";

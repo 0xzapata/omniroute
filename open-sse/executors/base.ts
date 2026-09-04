@@ -1,12 +1,13 @@
 import { HTTP_STATUS, FETCH_TIMEOUT_MS } from "../config/constants.ts";
 import { getRegistryEntry } from "../config/providerRegistry.ts";
+import { resolveFetchStartTimeout } from "../utils/fetchStartTimeoutPolicy.ts";
 import {
   resolveAlternateFormat,
   type AlternateFormat,
 } from "../config/providers/alternateFormats.ts";
 import {
-  CLAUDE_CLI_BILLING_VERSION,
   CLAUDE_CLI_STAINLESS_RUNTIME_VERSION,
+  getClaudeCliBillingVersion,
   mergeClientAnthropicBeta,
   normalizeAnthropicHeaderVariants,
 } from "../config/anthropicHeaders.ts";
@@ -29,7 +30,7 @@ import {
   addParamToBlocklist,
   isAutoLearnGloballyEnabled,
 } from "@/lib/db/paramFilters";
-import { applyFingerprint, isCliCompatEnabled } from "../config/cliFingerprints.ts";
+import { applyFingerprint, isCliCompatEnabled, stripInternalBodyFields } from "../config/cliFingerprints.ts";
 import { supportsClaudeMaxEffort, supportsXHighEffort } from "../config/providerModels.ts";
 import { getThinkingBudgetConfig, ThinkingMode } from "../services/thinkingBudget.ts";
 import {
@@ -85,7 +86,7 @@ import {
 } from "../services/contextManager.ts";
 import { randomUUID } from "node:crypto";
 import {
-  CLAUDE_CODE_VERSION,
+  getClaudeCodeVersion,
   CLAUDE_CODE_STAINLESS_VERSION,
   buildUserIdJson,
   getSessionId,
@@ -581,6 +582,8 @@ export class BaseExecutor {
         if (cloned[key] === "") delete cloned[key];
       }
 
+      stripInternalBodyFields(cloned);
+
       return cloned;
     }
 
@@ -902,9 +905,24 @@ export class BaseExecutor {
         clampNestedThinkingBudget(transformedBody, thinkingBudgetClampedMax);
       }
 
+      // Timeout only covers response start; stream stalls are handled downstream.
+      // #11526: streaming requests cap the headers-wait phase to a client-realistic
+      // ceiling (see fetchStartTimeoutPolicy.ts) — non-streaming keeps the flat default.
+      // Declared outside the try/catch below so the catch's TIMEOUT log (on the
+      // error path) reports the same effective value the fetch actually used.
+      const fetchStartTimeoutPolicy = resolveFetchStartTimeout({
+        baseTimeoutMs: this.getTimeoutMs(),
+        stream,
+      });
+      const fetchStartTimeoutMs = fetchStartTimeoutPolicy.timeoutMs;
+      if (fetchStartTimeoutPolicy.capped) {
+        log?.debug?.(
+          "TIMEOUT",
+          `fetch-start timeout capped ${fetchStartTimeoutPolicy.baseTimeoutMs}ms -> ${fetchStartTimeoutMs}ms (streaming)`
+        );
+      }
+
       try {
-        // Timeout only covers response start; stream stalls are handled downstream.
-        const fetchStartTimeoutMs = this.getTimeoutMs();
         const fetchWithStartTimeout = async (requestUrl: string, requestOptions: RequestInit) => {
           // GHSA-4f49: guard here (not only next to the first buildUrl) so retries
           // and fallback URLs are validated too, before any bytes leave the host.
@@ -1145,7 +1163,7 @@ export class BaseExecutor {
 
           // system[0] (billing) and system[1] (sentinel) must not carry
           // cache_control — that belongs on upstream prompt blocks at [2..].
-          const billingLine = `x-anthropic-billing-header: cc_version=${CLAUDE_CLI_BILLING_VERSION}; cc_entrypoint=cli; cch=00000;`;
+          const billingLine = `x-anthropic-billing-header: cc_version=${getClaudeCliBillingVersion()}; cc_entrypoint=cli; cch=00000;`;
           const SENTINEL = "You are Claude Code, Anthropic's official CLI for Claude.";
 
           const sysBlocks: Array<Record<string, unknown>> = Array.isArray(tb.system)
@@ -1241,7 +1259,7 @@ export class BaseExecutor {
               ),
               "anthropic-dangerous-direct-browser-access": "true",
               "x-app": "cli",
-              "User-Agent": `claude-cli/${CLAUDE_CODE_VERSION} (external, cli)`,
+              "User-Agent": `claude-cli/${getClaudeCodeVersion()} (external, cli)`,
               "X-Stainless-Package-Version": CLAUDE_CODE_STAINLESS_VERSION,
               "X-Stainless-Timeout": "600",
               "accept-encoding": "gzip, deflate, br, zstd",
@@ -1377,6 +1395,7 @@ export class BaseExecutor {
           );
         }
 
+        stripInternalBodyFields(transformedBody);
         let bodyString = JSON.stringify(transformedBody);
 
         const shouldFingerprint =
@@ -1713,7 +1732,7 @@ export class BaseExecutor {
         // Distinguish timeout errors from other abort errors
         const err = error instanceof Error ? error : new Error(String(error));
         if (err.name === "TimeoutError") {
-          log?.warn?.("TIMEOUT", `Fetch timeout after ${this.getTimeoutMs()}ms on ${url}`);
+          log?.warn?.("TIMEOUT", `Fetch timeout after ${fetchStartTimeoutMs}ms on ${url}`);
         }
         lastError = err;
         if (!skipUpstreamRetry && urlIndex + 1 < fallbackCount) {

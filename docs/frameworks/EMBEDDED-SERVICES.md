@@ -32,16 +32,17 @@ via API keys), embedded services run on the same machine as OmniRoute and commun
 
 ### Why embedded services?
 
-Four services are embedded as of v3.8.44:
+Five services are embedded:
 
-| Service         | npm package                                    | Default port | Purpose                                                                                                        |
-| --------------- | ---------------------------------------------- | :----------: | -------------------------------------------------------------------------------------------------------------- |
-| **9Router**     | `9router`                                      |    20130     | AI router that OmniRoute can use as a sub-provider. Models exposed as `9router/{sub}/{model}`                  |
-| **CLIProxyAPI** | `@anthropic/cli-proxy` (via `cliproxy` binary) |     auto     | Local proxy adapter for Anthropic CLI auth flows. Provides fallback routing when OAuth tokens expire           |
-| **Mux**         | `mux` (headless `mux server`)                  |     8322     | Local agent-orchestration daemon (coder/mux). Lifecycle-managed only — not a routing target (no LLM proxying). |
-| **Bifrost**     | `@maximhq/bifrost`                             |     8080     | Go AI-gateway relay backend. When running, auto-selected by the relay route (`/v1/relay/`)                     |
+| Service         | npm package                        | Default port | Purpose                                                                                                                                                                                |
+| --------------- | ---------------------------------- | :----------: | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **9Router**     | `9router`                          |    20130     | AI router that OmniRoute can use as a sub-provider. Models exposed as `9router/{sub}/{model}`                                                                                          |
+| **CLIProxyAPI** | GitHub release binary (`cliproxy`) |     8317     | Local proxy adapter for Anthropic CLI auth flows. Provides fallback routing when OAuth tokens expire                                                                                   |
+| **Mux**         | `mux` (headless `mux server`)      |     8322     | Local agent-orchestration daemon (coder/mux). Lifecycle-managed only — not a routing target (no LLM proxying).                                                                         |
+| **Bifrost**     | `@maximhq/bifrost`                 |     8080     | Go AI-gateway relay backend. When running, auto-selected by the relay route (`/v1/relay/`)                                                                                             |
+| **Dario**       | `@askalf/dario`                    |     3456     | Claude-subscription proxy — alternative/failover to CLIProxyAPI for Claude-Code-shaped traffic; the injected key becomes `DARIO_ADMIN_TOKEN` gating its `/admin/*` OAuth control plane |
 
-All four follow the same supervisory model:
+All five follow the same supervisory model:
 
 - OmniRoute installs them under `DATA_DIR/services/{name}/` (isolated from OmniRoute's own `package.json`)
 - OmniRoute spawns and monitors them as child processes
@@ -211,7 +212,7 @@ race conditions when, for example, auto-start and a UI button fire simultaneousl
 All routes under `/api/services/` are **LOCAL_ONLY** (loopback only, hard rule #17).
 Non-loopback requests receive `403 LOCAL_ONLY` regardless of auth token.
 
-### 4.1 9Router endpoints (8 routes)
+### 4.1 9Router endpoints (11 routes)
 
 #### `POST /api/services/9router/install`
 
@@ -429,11 +430,12 @@ SSE stream of live logs from 9Router's stdout/stderr ring buffer.
 
 ---
 
-### 4.2 CLIProxyAPI endpoints (7 routes)
+### 4.2 CLIProxyAPI endpoints (10 routes)
 
-CLIProxyAPI has the same endpoint shape as 9Router minus `rotate-key` (CLIProxyAPI
-does not require an injected API key; it authenticates via the host's existing CLI
-config) and `status` includes fewer fields.
+CLIProxyAPI has the same endpoint shape as 9Router minus `rotate-key`, plus
+`accounts`, `provider-expose` and `auto-restart-adopted`. It now receives a
+dedicated data-plane API key injected at spawn (`needsApiKey: true` in
+`bootstrap.ts`, used for model sync); `status` includes fewer fields.
 
 | Method | Path                                | Description                          |
 | ------ | ----------------------------------- | ------------------------------------ |
@@ -450,7 +452,7 @@ four services using the `[name]` dynamic segment.
 
 ---
 
-### 4.3 Mux endpoints (7 routes)
+### 4.3 Mux endpoints (8 routes)
 
 Mux has the same endpoint shape as CLIProxyAPI — no `rotate-key` route in the API
 surface (the bearer token is generated the same way as 9Router's via
@@ -470,7 +472,7 @@ there is no dedicated rotation endpoint yet). Mux is lifecycle-managed only: unl
 
 ---
 
-### 4.4 Bifrost endpoints (7 routes)
+### 4.4 Bifrost endpoints (8 routes)
 
 Bifrost is a Go AI-gateway relay backend (`@maximhq/bifrost`). It uses the same
 endpoint shape as CLIProxyAPI (no `rotate-key` — Bifrost manages its own provider
@@ -494,7 +496,14 @@ always takes precedence.
 
 ---
 
-### 4.4 Reverse proxy (9Router dashboard embed)
+### 4.5 Dario endpoints (12 routes)
+
+Same lifecycle shape as the other services (`install`, `start`, `stop`, `restart`,
+`update`, `status`, `auto-start`, `auto-restart-adopted`) plus a token-gated OAuth
+control plane under `admin/`: `admin/accounts`, `admin/import-from-omniroute`,
+`admin/login-start`, `admin/login-complete` (all behind `DARIO_ADMIN_TOKEN`).
+
+### 4.6 Reverse proxy (9Router dashboard embed)
 
 The dashboard embeds the 9Router web UI inside an iframe via an internal reverse
 proxy at:
@@ -552,8 +561,8 @@ OmniRoute:
    flag, so the token never appears in `ps`/process listings).
 4. Never returns the plaintext key in any HTTP response.
 
-CLIProxyAPI does not require an injected key (it authenticates via the host's
-existing CLI config).
+CLIProxyAPI receives a dedicated data-plane key injected at spawn
+(`needsApiKey: true` — used for model sync against the adapter).
 
 ### SSRF defense
 

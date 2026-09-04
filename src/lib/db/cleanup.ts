@@ -13,6 +13,7 @@ import {
   deleteAllFromTable,
   deleteCallLogArtifacts,
   deleteFromTableBefore,
+  tableExists,
   type DeleteByPeriodTarget,
 } from "./cleanup/usagePurge";
 
@@ -196,7 +197,9 @@ export async function cleanupMcpAudit(): Promise<CleanupResult> {
 /**
  * Clean up old config_audit_log based on retention settings.
  */
-export async function cleanupConfigAudit(retentionDays = getRetentionSettings().configAudit): Promise<CleanupResult> {
+export async function cleanupConfigAudit(
+  retentionDays = getRetentionSettings().configAudit
+): Promise<CleanupResult> {
   const db = getDbInstance();
   const result: CleanupResult = { deleted: 0, errors: 0 };
 
@@ -237,7 +240,9 @@ export async function cleanupA2aEvents(): Promise<CleanupResult> {
     const runResult = stmt.run(cutoffISO);
     result.deleted = runResult.changes;
 
-    console.log(`[Cleanup] Deleted ${result.deleted} a2a_task_events older than ${retentionDays} days`);
+    console.log(
+      `[Cleanup] Deleted ${result.deleted} a2a_task_events older than ${retentionDays} days`
+    );
   } catch (err: unknown) {
     console.error("[Cleanup] Error cleaning a2a_task_events:", err);
     result.errors++;
@@ -383,6 +388,8 @@ export async function cleanupCompressionRunTelemetry(): Promise<CleanupResult> {
   const result: CleanupResult = { deleted: 0, errors: 0 };
 
   try {
+    if (!tableExists("compression_run_telemetry")) return result;
+
     const stmt = db.prepare("DELETE FROM compression_run_telemetry WHERE timestamp < ?");
     const runResult = stmt.run(cutoffEpoch);
     result.deleted = runResult.changes;

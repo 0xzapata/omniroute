@@ -49,7 +49,7 @@ function runChatCoreInterceptFetchStep(
 describe("chatCore.ts interceptFetch call site — flag-off regression guard (#7339)", () => {
   function resetDb() {
     core.resetDbInstance();
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     fs.mkdirSync(tmpDir, { recursive: true });
   }
 
@@ -59,7 +59,7 @@ describe("chatCore.ts interceptFetch call site — flag-off regression guard (#7
 
   after(() => {
     core.resetDbInstance();
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   it("leaves the outgoing body byte-identical when no interceptFetch rule is configured", () => {

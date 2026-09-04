@@ -26,6 +26,16 @@ process.env.DATA_DIR = TEST_DATA_DIR;
 process.env.API_KEY_SECRET = process.env.API_KEY_SECRET || "combo-model-400-test-secret";
 
 const { handleComboChat, isModelScoped400 } = await import("../../open-sse/services/combo.ts");
+const { clearAllModelLockouts } = await import("../../open-sse/services/accountFallback.ts");
+
+// Reused "github/claude-fable-5" across sub-tests below now persists a
+// cross-request model lockout on a 400 "model not supported" (matches
+// production combo.ts behavior). Reset it between tests so each sub-test
+// still exercises a fresh dispatch instead of being skipped by a lockout
+// left over from a previous sub-test in this file.
+test.beforeEach(() => {
+  clearAllModelLockouts();
+});
 
 const noop = () => {};
 const log = { info: noop, warn: noop, debug: noop, error: noop };

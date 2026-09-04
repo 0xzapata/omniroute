@@ -23,8 +23,12 @@ test("normalizeAliasEntry keeps a reasoning-only override and canonicalizes its 
   });
 });
 
-test("normalizeAliasEntry maps the max/extra UI synonyms onto canonical xhigh", () => {
+test("normalizeAliasEntry keeps canonical max and maps extra onto xhigh", () => {
   assert.deepEqual(normalizeAliasEntry({ model: "p/m", reasoningEffort: "max" }), {
+    model: "p/m",
+    reasoningEffort: "max",
+  });
+  assert.deepEqual(normalizeAliasEntry({ model: "p/m", reasoningEffort: "extra" }), {
     model: "p/m",
     reasoningEffort: "xhigh",
   });

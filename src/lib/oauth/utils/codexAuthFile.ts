@@ -1,6 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
-import { getCachedProviderConnectionById } from "@/lib/localDb";
+import { getCachedProviderConnectionById } from "@/lib/db/readCache";
 import { createBackup } from "@/shared/services/backupService";
 import { getCliConfigPaths } from "@/shared/services/cliRuntime";
 import {
@@ -379,7 +379,11 @@ export type CodexAuthWriteDecision =
 export async function writeCodexAuthFileToLocalCliIfNeeded(
   connectionId: string,
   options: { force?: boolean } = {}
-): Promise<{ decision: CodexAuthWriteDecision; authPath: string | null; result?: Awaited<ReturnType<typeof writeCodexAuthFileToLocalCli>> }> {
+): Promise<{
+  decision: CodexAuthWriteDecision;
+  authPath: string | null;
+  result?: Awaited<ReturnType<typeof writeCodexAuthFileToLocalCli>>;
+}> {
   const paths = getCliConfigPaths("codex");
   const authPath = paths?.auth ?? null;
 

@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 
 const { errorResponseWithComboDiagnostics, sanitizeComboDiagnostics } =
   await import("../../open-sse/utils/error.ts");
+const { buildRecoveryHint } = await import("../../open-sse/services/combo/pinRecovery.ts");
 
 test("combo diagnostics: headers + body carry the sanitized trace (code override preserved)", async () => {
   const res = errorResponseWithComboDiagnostics(
@@ -120,4 +121,36 @@ test("combo diagnostics: JSON body keeps the original non-Latin1 text even thoug
   const body = await res.json();
   // JSON body keeps the original, readable (unsanitized) em dash.
   assert.equal(body.diagnostics.terminalReason, terminalReason);
+});
+
+test("combo diagnostics preserve every canonical recovery hint up to the existing cap", async () => {
+  const reasons = [
+    "reasoning_budget_exhausted",
+    "max_attempts_exceeded",
+    "all_accounts_inactive",
+    "quota_exhausted",
+    "all_models_failed",
+    "no_executable_targets",
+    "context_requirements_exhausted",
+    "all_targets_skipped",
+    "unknown_reason",
+  ];
+
+  for (const reason of reasons) {
+    const recovery = buildRecoveryHint(reason, 30);
+    const response = errorResponseWithComboDiagnostics(503, "combo failed", {
+      poolSize: 1,
+      attempted: 1,
+      excluded: [],
+      attemptOrder: [],
+      terminalReason: reason,
+      recovery,
+    });
+    const body = (await response.json()) as {
+      recovery_hint?: { action: string; next_step: string };
+    };
+
+    assert.equal(body.recovery_hint?.action, recovery.action, reason);
+    assert.equal(body.recovery_hint?.next_step, recovery.next_step.slice(0, 200), reason);
+  }
 });

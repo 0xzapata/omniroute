@@ -32,7 +32,7 @@ function resetRuntime() {
 test.beforeEach(() => {
   resetRuntime();
   coreDb.resetDbInstance();
-  fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true });
+  fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   fs.mkdirSync(TEST_DATA_DIR, { recursive: true });
 });
 
@@ -40,7 +40,7 @@ test.after(() => {
   builtinSkills.web_fetch = originalWebFetchHandler;
   resetRuntime();
   coreDb.resetDbInstance();
-  fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true });
+  fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 const contextWithFetchBuiltin = {

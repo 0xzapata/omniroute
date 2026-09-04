@@ -10,7 +10,7 @@
  * frozen file-size budget (see config/quality/file-size-baseline.json).
  */
 
-import { getProviderConnectionById, updateProviderConnection } from "@/lib/localDb";
+import { getProviderConnectionById, updateProviderConnection } from "@/lib/db/providers";
 import { refreshCopilotToken } from "@omniroute/open-sse/services/tokenRefresh.ts";
 
 type HealthCheckLogger = {

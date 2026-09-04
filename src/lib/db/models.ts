@@ -190,7 +190,8 @@ export async function addCustomModel(
     | "rerank"
     | "audio-transcriptions"
     | "audio-speech"
-    | "images-generations" = "chat-completions",
+    | "images-generations"
+    | "video" = "chat-completions",
   supportedEndpoints: string[] = ["chat"],
   // #2905: optional per-model wire format override (e.g. "claude" for an
   // opencode-go custom model). When unset, routing falls back to the provider
@@ -205,7 +206,8 @@ export async function addCustomModel(
   // #9820: optional video-generation job preset (e.g. "agnes-video-job") for
   // custom OpenAI-compatible video models. Persisted on the model row; the
   // /v1/videos/generations handler reads it back to pick the job/poll path.
-  generationConfig?: { preset: string }
+  generationConfig?: { preset: string },
+  isFree?: boolean
 ) {
   const db = getDbInstance();
   const row = db
@@ -231,6 +233,7 @@ export async function addCustomModel(
       ? { outputTokenLimit: tokenLimits.outputTokenLimit }
       : {}),
     ...(typeof supportsVision === "boolean" ? { supportsVision } : {}),
+    ...(typeof isFree === "boolean" ? { isFree } : {}),
     ...(generationConfig && generationConfig.preset ? { generationConfig } : {}),
   };
   models.push(model);
@@ -259,6 +262,7 @@ export async function replaceCustomModels(
     supportsThinking?: boolean;
     targetFormat?: string;
     generationConfig?: { preset?: string };
+    isFree?: boolean;
   }>,
   { allowEmpty = false }: { allowEmpty?: boolean } = {}
 ) {
@@ -808,6 +812,7 @@ export async function updateCustomModel(
   // #1904: manual vision-capability override — `null` clears back to the
   // id-based heuristic in getCustomVisionCapabilityFields().
   applyTriStateBooleanOverride(next, updates, "supportsVision");
+  applyTriStateBooleanOverride(next, updates, "isFree");
   if (updates.compatByProtocol !== undefined) {
     if (mergedCompat && compatByProtocolHasEntries(mergedCompat)) {
       next.compatByProtocol = mergedCompat;

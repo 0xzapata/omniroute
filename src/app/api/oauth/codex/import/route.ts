@@ -3,8 +3,9 @@ import { z } from "zod";
 import {
   normalizeCodexImportRecord,
   flattenCodexImportPayload,
+  preserveExistingCodexConnectionState,
 } from "@/lib/oauth/services/codexImport";
-import { createProviderConnection } from "@/models";
+import { createProviderConnection, getProviderConnections } from "@/models";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import { sanitizeErrorMessage } from "@omniroute/open-sse/utils/error.ts";
 import {
@@ -145,7 +146,18 @@ export async function POST(request: Request) {
     }
 
     try {
-      const conn = await createProviderConnection(norm.payload as Record<string, unknown>);
+      // A record matching an existing connection (same email + workspaceId)
+      // flows into createProviderConnection's upsert, which replaces supplied
+      // columns wholesale — carry the matched row's providerSpecificData and
+      // priority through the payload so a re-import cannot clobber them
+      // (#11954 follow-up). Fetched per record: an earlier record in this
+      // batch may have just created the row a later duplicate must match.
+      const existing = await getProviderConnections({ provider: "codex", authType: "oauth" });
+      const payload = preserveExistingCodexConnectionState(
+        norm.payload,
+        existing as Array<Record<string, unknown>>
+      );
+      const conn = await createProviderConnection(payload as Record<string, unknown>);
       imported += 1;
       results.push({
         index: i,

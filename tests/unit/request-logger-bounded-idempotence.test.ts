@@ -20,7 +20,8 @@ const MAX_KEYS = 80;
 const MAX_STRING = 64 * 1024;
 
 test("arrays: second pass preserves the marker, the tail, and the true originalLength", () => {
-  const input = { messages: Array.from({ length: 800 }, (_, i) => ({ role: "user", n: i })) };
+  const total = MAX_LOG_ARRAY_ITEMS + 200;
+  const input = { messages: Array.from({ length: total }, (_, i) => ({ role: "user", n: i })) };
   const once = cloneBoundedForLog(input) as { messages: Record<string, unknown>[] };
   const twice = cloneBoundedForLog(once) as { messages: Record<string, unknown>[] };
 
@@ -28,11 +29,11 @@ test("arrays: second pass preserves the marker, the tail, and the true originalL
   assert.equal(twice.messages.length, MAX_LOG_ARRAY_ITEMS + 1, "marker plus the retained tail");
   assert.equal(
     twice.messages[0].originalLength,
-    800,
+    total,
     "originalLength must keep describing the ORIGINAL array, not the bounded one"
   );
   // The tail must still be the last items of the real history, not shifted by the marker.
-  assert.equal((twice.messages.at(-1) as { n: number }).n, 799);
+  assert.equal((twice.messages.at(-1) as { n: number }).n, total - 1);
 });
 
 test("objects: second pass keeps the real keys and the true dropped count", () => {

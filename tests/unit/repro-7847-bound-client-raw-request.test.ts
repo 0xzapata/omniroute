@@ -16,7 +16,7 @@ const { buildClientRawRequest } = await import("../../src/sse/handlers/chat.ts")
 const { cloneBoundedForLog, MAX_LOG_ARRAY_ITEMS } =
   await import("../../open-sse/utils/requestLogger.ts");
 
-const MESSAGES = 800;
+const MESSAGES = MAX_LOG_ARRAY_ITEMS + 500;
 
 function makeRequest(): Request {
   return new Request("http://localhost:20128/v1/chat/completions", {

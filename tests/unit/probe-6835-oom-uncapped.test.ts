@@ -55,5 +55,5 @@ test("getDbInstance() eventually caps a persistently-OOMing sql.js probe (#6835)
       "uncapped OOM error:\n" +
       errors.map((e, i) => `  [${i}] ${e}`).join("\n")
   );
-  fs.rmSync(tmpDir, { recursive: true, force: true });
+  fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
