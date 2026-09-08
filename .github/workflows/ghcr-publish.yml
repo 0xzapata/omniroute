@@ -9,6 +9,8 @@ on:
       - ".dockerignore"
       - "package.json"
       - "package-lock.json"
+      - "src/**"
+      - "open-sse/**"
       - "docker-compose.yml"
       - "scripts/check-permissions.sh"
       - "scripts/dev/run-standalone.mjs"
