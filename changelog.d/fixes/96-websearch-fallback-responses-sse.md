@@ -1,0 +1,1 @@
+- **fix(sse):** Streaming OpenAI Responses requests whose built-in `web_search` tool is converted to the OmniRoute fallback are returned as a Responses SSE stream (`response.created` … `response.completed`) again instead of buffered JSON, fixing `stream closed before response.completed` in strict SSE clients such as Codex ([#96](https://github.com/0xzapata/omniroute/pull/96))

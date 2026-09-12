@@ -29,6 +29,7 @@ import { buildPostCallGuardrailContext } from "./chatCore/postCallGuardrailConte
 import { storeSemanticCacheResponse } from "./chatCore/semanticCacheStore.ts";
 import { buildNonStreamingResponseHeaders } from "./chatCore/nonStreamingResponseHeaders.ts";
 import { buildNonStreamingJsonResponse } from "./chatCore/nonStreamingJsonResponse.ts";
+import { buildResponsesSseResponse } from "./chatCore/nonStreamingResponsesSse.ts";
 import { enforceOutputTokenBudget } from "./chatCore/outputTokenBudget.ts";
 import { maybeConvertJsonBodyToSse } from "./chatCore/jsonBodyToSse.ts";
 import { assembleStreamingResponseHeaders } from "./chatCore/streamingResponseHeaders.ts";
@@ -955,19 +956,23 @@ export async function handleChatCore({
       nativeCodexPassthrough: nativeResponsesPassthrough,
       interceptSearchOverride,
     });
+  let webSearchFallbackForcedNonStream = false;
   if (webSearchFallbackPlan.enabled) {
     body = bodyWithWebSearchFallback as typeof body;
     // Server-side web-search execution cannot be injected into an arbitrary
     // client SSE stream (streaming interception is not implemented — #9725), so
     // a stream:true OpenAI Responses request whose web_search tool was converted
     // to the fallback is executed non-streaming: the assembled response then
-    // carries the executed results (function_call_output + web_search_call) and
-    // JSON-tolerating Responses clients (pi-web-access) consume it directly.
+    // carries the executed results (function_call_output + web_search_call).
+    // JSON-tolerating Responses clients (pi-web-access) consume the JSON directly;
+    // Responses SSE clients (Codex) require the response.created … response.completed
+    // contract, so the non-streaming result is re-wrapped as SSE on the way out.
     if (
       sourceFormat === FORMATS.OPENAI_RESPONSES &&
       (body as Record<string, unknown>).stream === true
     ) {
       (body as Record<string, unknown>).stream = false;
+      webSearchFallbackForcedNonStream = true;
       log?.info?.("TOOLS", `web_search fallback forced non-streaming response for ${provider}`);
     }
     log?.info?.(
@@ -5468,9 +5473,17 @@ export async function handleChatCore({
       })
     );
 
+    // When the web-search fallback downgraded a streaming Responses request
+    // to a non-streaming execution, re-emit the assembled result as a Responses SSE
+    // stream so strict SSE clients (Codex) still receive the response.created …
+    // response.completed contract instead of a bare JSON body.
+    const needsResponsesSseWrap =
+      webSearchFallbackForcedNonStream && clientResponseFormat === FORMATS.OPENAI_RESPONSES;
     return {
       success: true,
-      response: buildNonStreamingJsonResponse(translatedResponse, responseHeaders),
+      response: needsResponsesSseWrap
+        ? buildResponsesSseResponse(translatedResponse, responseHeaders)
+        : buildNonStreamingJsonResponse(translatedResponse, responseHeaders),
     };
   }
 
