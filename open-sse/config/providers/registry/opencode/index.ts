@@ -30,17 +30,25 @@ export const opencodeProvider: RegistryEntry = {
     // content (see issue #10867). The opencode provider is passthrough, so
     // declaring them here only sets the wire format / capability flags — the
     // live upstream model list already advertises both ids.
+    // #12681: real window confirmed against the opencode-go registry's own
+    // muse-spark-1.2-contributor entries (contextLength: 1048576, maxOutputTokens:
+    // 131072) — without an explicit value here resolution fell back to the
+    // provider-wide defaultContextLength (200000), understating the real window.
     {
       id: "muse-spark-1.2",
       name: "Muse Spark 1.2",
       supportsReasoning: true,
       targetFormat: "openai-responses",
+      contextLength: 1048576,
+      maxOutputTokens: 131072,
     },
     {
       id: "muse-spark-1.2-contributor-free",
       name: "Muse Spark 1.2 Contributor Free",
       supportsReasoning: true,
       targetFormat: "openai-responses",
+      contextLength: 1048576,
+      maxOutputTokens: 131072,
     },
     // Muse Spark 1.3 is served only on the Responses API, same as 1.2 above.
     // Its window matches the published OpenCode catalog instead of the
