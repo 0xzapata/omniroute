@@ -1,0 +1,1 @@
+OpenCode, OpenCode Zen, and OpenCode Go now honor the resolved per-model target format when selecting the upstream endpoint, keeping dashboard custom-model overrides consistent with request translation.

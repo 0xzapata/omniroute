@@ -4,7 +4,11 @@
  */
 
 import { getResolvedModelCapabilities } from "@/lib/modelCapabilities";
-import { PROVIDER_MODELS, PROVIDER_ID_TO_ALIAS } from "@omniroute/open-sse/config/providerModels";
+import { getActiveSyncedCatalog } from "@/lib/db/models/activeSyncedCatalog";
+import { PROVIDER_MODELS } from "@omniroute/open-sse/config/providerModels";
+import { getRegisteredProviderEffortBaseModelId } from "@omniroute/open-sse/utils/registeredEffortVariants.ts";
+import { hasUsableCredentialsForModel } from "./visionBridgeCredentials";
+import { isVisionBridgeForcedModel } from "@/shared/constants/visionBridgeDefaults";
 
 export interface VisionModelCandidate {
   modelId: string;
@@ -95,44 +99,145 @@ function calculateSuccessRate(modelId: string): number {
 }
 
 /**
- * Get all vision-capable models from the registry.
+ * Injectable dependencies for the router's credential-usability check.
+ * Defaults to the real `hasUsableCredentialsForModel` (DB-backed). Tests can
+ * inject a pure stub here instead of mocking the `@/lib/db/providers` module
+ * boundary — this project's Node native test runner (`node:test`) has no
+ * supported ESM module-mocking mechanism, so DI is the only way to exercise
+ * the credential-exclusion branch under `npm run test:unit`.
  */
-function getVisionCapableModels(): VisionModelCandidate[] {
-  const candidates: VisionModelCandidate[] = [];
+export interface VisionBridgeRouterDeps {
+  hasUsableCredentials?: (model: string) => Promise<boolean | null>;
+  getActiveSyncedCatalog?: (provider: string) => Promise<VisionModelCatalog>;
+}
 
-  for (const [providerAlias, models] of Object.entries(PROVIDER_MODELS)) {
-    if (!Array.isArray(models)) continue;
+export interface VisionModelCatalog {
+  authoritative: boolean;
+  models: Array<{ id: string }>;
+}
 
-    for (const model of models) {
-      if (!model?.id) continue;
+type CatalogAwareRegistryModel = {
+  id: string;
+  liveCatalogIds?: readonly string[];
+};
 
-      const fullModelId = `${providerAlias}/${model.id}`;
-      const caps = getResolvedModelCapabilities(fullModelId);
+async function readActiveCatalog(
+  providerAlias: string,
+  deps: VisionBridgeRouterDeps
+): Promise<VisionModelCatalog> {
+  const readCatalog = deps.getActiveSyncedCatalog ?? getActiveSyncedCatalog;
+  try {
+    return await readCatalog(providerAlias);
+  } catch {
+    return { authoritative: false, models: [] };
+  }
+}
 
-      if (caps.supportsVision === true) {
-        // Determine priority based on provider type
+function createCatalogModelPredicate(
+  providerAlias: string,
+  catalog: VisionModelCatalog
+): (model: CatalogAwareRegistryModel) => boolean {
+  if (!catalog.authoritative) return () => true;
+
+  const liveIds = new Set(catalog.models.map((entry) => entry.id));
+  return (model) => {
+    if (liveIds.has(model.id) || model.liveCatalogIds?.some((id) => liveIds.has(id))) {
+      return true;
+    }
+
+    const effortBaseModelId = getRegisteredProviderEffortBaseModelId(providerAlias, model.id);
+    return effortBaseModelId !== null && liveIds.has(effortBaseModelId);
+  };
+}
+
+async function cachedModelRemainsAvailable(
+  fullModelId: string,
+  deps: VisionBridgeRouterDeps
+): Promise<boolean> {
+  const separator = fullModelId.indexOf("/");
+  if (separator < 1) return false;
+
+  const providerAlias = fullModelId.slice(0, separator);
+  const modelId = fullModelId.slice(separator + 1);
+  const registryModel = PROVIDER_MODELS[providerAlias]?.find((model) => model.id === modelId);
+  if (!registryModel) return false;
+
+  const catalog = await readActiveCatalog(providerAlias, deps);
+  return createCatalogModelPredicate(providerAlias, catalog)(registryModel);
+}
+
+/**
+ * Get all vision-capable models from the registry that also have a usable
+ * active connection on this instance.
+ *
+ * Without this credential check, a model with no working connection (e.g. the
+ * hardcoded default `openai/gpt-4o-mini` on an instance with no `openai`
+ * provider connected) could win selection, fail the describe call, and leave
+ * the guardrail's describe-failure fallback to forward the raw image to a
+ * non-vision backend, which rejects it with an opaque upstream error.
+ */
+async function getVisionCapableModels(
+  deps: VisionBridgeRouterDeps = {}
+): Promise<VisionModelCandidate[]> {
+  const checkCreds = deps.hasUsableCredentials ?? hasUsableCredentialsForModel;
+  const candidatesByProvider = await Promise.all(
+    Object.entries(PROVIDER_MODELS).map(async ([providerAlias, models]) => {
+      if (!Array.isArray(models)) return [];
+      const visionModels = models.filter((model) => {
+        if (!model?.id) return false;
+        const fullModelId = `${providerAlias}/${model.id}`;
+        return (
+          getResolvedModelCapabilities(fullModelId).supportsVision === true &&
+          !isVisionBridgeForcedModel(fullModelId)
+        );
+      });
+      if (visionModels.length === 0) return [];
+
+      const usableModels = (
+        await Promise.all(
+          visionModels.map(async (model) =>
+            (await checkCreds(`${providerAlias}/${model.id}`)) === false ? null : model
+          )
+        )
+      ).filter((model): model is (typeof visionModels)[number] => model !== null);
+      if (usableModels.length === 0) return [];
+
+      const catalog = await readActiveCatalog(providerAlias, deps);
+      const modelExistsInCatalog = createCatalogModelPredicate(providerAlias, catalog);
+
+      const candidates = usableModels.map((model): VisionModelCandidate | null => {
+        if (!modelExistsInCatalog(model)) return null;
+
+        const fullModelId = `${providerAlias}/${model.id}`;
+
         let priority = 100;
-        if (providerAlias.startsWith("opencode-")) {
-          priority = 0; // Local/free models first
-        } else if (providerAlias === "openai" || providerAlias === "anthropic") {
-          priority = 50; // Major providers
+        if (providerAlias === "openai" || providerAlias === "anthropic") {
+          priority = 50;
+        } else if (providerAlias === "vertex" || providerAlias === "gemini") {
+          priority = 55;
+        } else if (providerAlias.startsWith("opencode-")) {
+          priority = 95;
         } else {
-          priority = 75; // Other providers
+          priority = 75;
         }
 
-        candidates.push({
+        return {
           modelId: model.id,
           fullName: fullModelId,
           priority,
           averageLatencyMs: calculateAverageLatency(fullModelId),
           lastUsedAt: 0,
           successRate: calculateSuccessRate(fullModelId),
-        });
-      }
-    }
-  }
+        };
+      });
 
-  return candidates;
+      return candidates.filter(
+        (candidate): candidate is VisionModelCandidate => candidate !== null
+      );
+    })
+  );
+
+  return candidatesByProvider.flat();
 }
 
 /**
@@ -169,38 +274,98 @@ function selectBestModel(
 }
 
 /**
- * Get the best vision model for image description.
- * Respects fixed model override if configured.
+ * (#12237) `auto` / `auto/*` ids are VIRTUAL combos: there is no provider
+ * row for "auto", so the credential check always reports `false` for them.
+ * Member-level credentials are enforced downstream when the combo
+ * dispatches (mirrors the reroute guard in visionBridge.ts), so a virtual
+ * combo must not be discarded by the #8430 short-circuit — otherwise the
+ * combo silently falls through to auto-selection and never rotates. It is
+ * still subject to the pool check in `getBestVisionModel`: when the ENTIRE
+ * vision pool is unusable there is nothing the combo could dispatch to, and
+ * returning the combo id would let a raw image reach a text-only backend
+ * (#8430).
+ *
+ * Returns the combo id when `fixedModel` is virtual, `undefined` otherwise.
  */
-export function getBestVisionModel(
-  config: Partial<VisionBridgeRouterConfig> = {}
-): string {
-  const fullConfig = { ...DEFAULT_ROUTER_CONFIG, ...config };
+function resolveVirtualCombo(fixedModel: string | undefined): string | undefined {
+  return fixedModel === "auto" || fixedModel?.startsWith("auto/") ? fixedModel : undefined;
+}
 
-  // If fixed model is configured, use it
-  if (fullConfig.fixedModel) {
-    return fullConfig.fixedModel;
+/**
+ * Resolve a live selection-cache entry for `cacheKey`.
+ *
+ * Returns the id to hand back: the cached member for a concrete target, or
+ * `virtualCombo` once the cached member proves it still has usable
+ * credentials (the cache never re-validates credentials, and the caller
+ * exempts virtual combos from that check). A missing or expired entry yields
+ * `null`; an entry whose member is no longer available or usable is dropped
+ * so the pool is rescanned.
+ */
+async function resolveCachedSelection(
+  cacheKey: string,
+  virtualCombo: string | undefined,
+  deps: VisionBridgeRouterDeps
+): Promise<string | null> {
+  const cached = selectionCache.get(cacheKey);
+  if (!cached || cached.expiresAt <= Date.now()) return null;
+
+  if (await cachedModelRemainsAvailable(cached.modelId, deps)) {
+    if (!virtualCombo) return cached.modelId;
+    const checkCreds = deps.hasUsableCredentials ?? hasUsableCredentialsForModel;
+    if ((await checkCreds(cached.modelId)) !== false) return virtualCombo;
+  }
+  selectionCache.delete(cacheKey);
+  return null;
+}
+
+/**
+ * Get the best vision model for image description.
+ * Respects fixed model override if configured, but validates it has usable
+ * credentials before short-circuiting — a fixedModel that is confirmed
+ * unreachable on this instance falls through to auto-selection.
+ * Returns `null` when no vision-capable candidate has usable credentials.
+ */
+export async function getBestVisionModel(
+  config: Partial<VisionBridgeRouterConfig> = {},
+  deps: VisionBridgeRouterDeps = {}
+): Promise<string | null> {
+  const fullConfig = { ...DEFAULT_ROUTER_CONFIG, ...config };
+  const virtualCombo = resolveVirtualCombo(fullConfig.fixedModel);
+
+  // If fixed model is configured, validate it has usable credentials first.
+  // (#8430) An unreachable fixedModel (e.g. the default "openai/gpt-4o-mini"
+  // on an instance with no OpenAI connection/key) must not short-circuit the
+  // credential check — fall through to auto-selection instead.
+  // (#12237) A virtual combo is exempt here and goes through the pool
+  // selection below instead; see `resolveVirtualCombo`.
+  if (fullConfig.fixedModel && !virtualCombo) {
+    const checkCreds = deps.hasUsableCredentials ?? hasUsableCredentialsForModel;
+    const usable = await checkCreds(fullConfig.fixedModel);
+    // Only skip credential validation when the check is indeterminate (null).
+    // A confirmed `false` means fall through to auto-selection.
+    if (usable !== false) {
+      return fullConfig.fixedModel;
+    }
   }
 
   // Check selection cache — key includes excluded models to prevent cache pollution
   // across different configurations
-  const cacheKey = fullConfig.excludedModels.length > 0
-    ? `excl:${[...fullConfig.excludedModels].sort().join(",")}`
-    : "default";
-  const cached = selectionCache.get(cacheKey);
-  if (cached && cached.expiresAt > Date.now()) {
-    return cached.modelId;
-  }
+  const cacheKey =
+    fullConfig.excludedModels.length > 0
+      ? `excl:${[...fullConfig.excludedModels].sort().join(",")}`
+      : "default";
+  const cachedPick = await resolveCachedSelection(cacheKey, virtualCombo, deps);
+  if (cachedPick) return cachedPick;
 
   // Get all vision-capable candidates
-  const candidates = getVisionCapableModels();
+  const candidates = await getVisionCapableModels(deps);
 
   // Select best model
   const best = selectBestModel(candidates, fullConfig);
 
   if (!best) {
-    // Fallback to default
-    return "openai/gpt-4o-mini";
+    // No vision-capable candidate has usable credentials on this instance
+    return null;
   }
 
   // Cache the selection
@@ -209,18 +374,21 @@ export function getBestVisionModel(
     expiresAt: Date.now() + fullConfig.selectionCacheTtlMs,
   });
 
-  return best.fullName;
+  // A virtual combo is returned as-is once the pool proves at least one
+  // vision-capable member is usable; it rotates its own members downstream.
+  return virtualCombo ?? best.fullName;
 }
 
 /**
  * Get fallback models for retry logic.
  */
-export function getFallbackModels(
+export async function getFallbackModels(
   excludeModel: string,
-  config: Partial<VisionBridgeRouterConfig> = {}
-): string[] {
+  config: Partial<VisionBridgeRouterConfig> = {},
+  deps: VisionBridgeRouterDeps = {}
+): Promise<string[]> {
   const fullConfig = { ...DEFAULT_ROUTER_CONFIG, ...config };
-  const candidates = getVisionCapableModels();
+  const candidates = await getVisionCapableModels(deps);
 
   const filtered = candidates.filter(
     (c) =>
@@ -250,7 +418,10 @@ export function clearSelectionCache(): void {
 /**
  * Get latency statistics for debugging.
  */
-export function getLatencyStats(): Record<string, { avg: number; samples: number; successRate: number }> {
+export function getLatencyStats(): Record<
+  string,
+  { avg: number; samples: number; successRate: number }
+> {
   const stats: Record<string, { avg: number; samples: number; successRate: number }> = {};
 
   for (const [modelId, records] of latencyStore.entries()) {

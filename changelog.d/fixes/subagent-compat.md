@@ -1,0 +1,1 @@
+Preserve namespace-qualified tool identities in Responses-to-Chat history, treat plaintext NEW_TASK messages as assignments, and reject opaque agent-message content instead of silently dropping child tasks.

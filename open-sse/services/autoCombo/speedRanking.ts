@@ -60,6 +60,7 @@ export interface SpeedFactors {
 export interface SpeedRankedCandidate {
   provider: string;
   model: string;
+  connectionId?: string;
   /** Final composite score in [0..1]; higher is faster+more-reliable. */
   score: number;
   factors: SpeedFactors;
@@ -211,9 +212,15 @@ function speedFactorsFor(
   failureRate: number
 ): SpeedFactors {
   return {
-    ttft: lowerIsBetter(positiveFinite(candidate.avgTtftMs), maxima.ttft),
+    ttft: lowerIsBetter(
+      positiveFinite(candidate.avgTtftMs) ?? positiveFinite(candidate.p95LatencyMs),
+      maxima.ttft
+    ),
     tps: higherIsBetter(positiveFinite(candidate.avgTokensPerSecond), maxima.tps),
-    e2e: lowerIsBetter(positiveFinite(candidate.avgE2ELatencyMs), maxima.e2e),
+    e2e: lowerIsBetter(
+      positiveFinite(candidate.avgE2ELatencyMs) ?? positiveFinite(candidate.p95LatencyMs),
+      maxima.e2e
+    ),
     p95: lowerIsBetter(positiveFinite(candidate.p95LatencyMs), maxima.p95),
     health: healthScoreFor(candidate.circuitBreakerState),
     reliability: clamp01(1 - failureRate),
@@ -236,10 +243,16 @@ function weightedSpeedScore(factors: SpeedFactors, weights: SpeedRankingWeights)
 function applySpeedPenalties(weightedSum: number, factors: SpeedFactors): number {
   const reliabilityMultiplier = Math.max(0.05, Math.pow(0.25 + 0.75 * factors.reliability, 2));
   const stabilityMultiplier = Math.max(0.05, Math.pow(0.25 + 0.75 * factors.stability, 2));
-  return clamp01(weightedSum * reliabilityMultiplier * stabilityMultiplier * Math.max(0.25, factors.health));
+  return clamp01(
+    weightedSum * reliabilityMultiplier * stabilityMultiplier * Math.max(0.25, factors.health)
+  );
 }
 
-function speedReason(candidate: SpeedCandidate, factors: SpeedFactors, metrics: SpeedRankedCandidate["metrics"]): string {
+function speedReason(
+  candidate: SpeedCandidate,
+  factors: SpeedFactors,
+  metrics: SpeedRankedCandidate["metrics"]
+): string {
   const reasonParts = [
     `ttft=${metrics.avgTtftMs == null ? "n/a" : `${Math.round(metrics.avgTtftMs)}ms`}`,
     `tps=${metrics.avgTokensPerSecond == null ? "n/a" : metrics.avgTokensPerSecond.toFixed(1)}`,
@@ -303,6 +316,7 @@ export function rankBySpeed(
     return {
       provider: candidate.provider,
       model: candidate.model,
+      connectionId: candidate.connectionId,
       score,
       factors,
       metrics,

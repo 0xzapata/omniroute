@@ -1,4 +1,39 @@
+import { flattenNamespaceToolName } from "../translator/request/openai-responses/namespaceFlatten.ts";
+import { unsupportedFeature } from "../translator/request/openai-responses/helpers.ts";
+
 type JsonRecord = Record<string, unknown>;
+
+function normalizeAgentMessageForChat(item: JsonRecord): JsonRecord | null {
+  if (item.type !== "agent_message") return null;
+
+  if (!Array.isArray(item.content)) return null;
+
+  const textParts: string[] = [];
+  for (const partValue of item.content) {
+    if (!partValue || typeof partValue !== "object" || Array.isArray(partValue)) {
+      return null;
+    }
+
+    const part = partValue as JsonRecord;
+    if (part.type === "encrypted_content") {
+      // Never run a child without its assignment or reinterpret opaque content as text.
+      throw unsupportedFeature(
+        "Encrypted agent messages cannot be translated to Chat Completions. Use a native Responses provider or send the assignment as plaintext input_text."
+      );
+    }
+    if (part.type !== "input_text" || typeof part.text !== "string") return null;
+    textParts.push(part.text);
+  }
+
+  const text = textParts.join("\n");
+  if (!text.trim()) return null;
+
+  return {
+    type: "message",
+    role: text.startsWith("Message Type: NEW_TASK\n") ? "user" : "assistant",
+    content: [{ type: "input_text", text }],
+  };
+}
 
 function textPartTypeForRole(role: string): "input_text" | "output_text" {
   return role === "assistant" ? "output_text" : "input_text";
@@ -10,6 +45,15 @@ function normalizeCodexMessageContentPart(part: unknown, role: string): unknown 
 
   const record = { ...(part as JsonRecord) };
   if (record.type === "text") record.type = textPartTypeForRole(role);
+  // Assistant history in the Responses API must use `output_text` (or `refusal`),
+  // never `input_text` (which is user-only). codex-cli sends assistant turns as
+  // `input_text`; normalize them so the Codex/OpenAI backend accepts the replay.
+  if (role === "assistant" && (record.type === "input_text" || record.type === "text")) {
+    record.type = "output_text";
+    delete record.annotations;
+    delete record.logprobs;
+    delete record.obfuscation;
+  }
   return record;
 }
 
@@ -37,8 +81,17 @@ function normalizeCodexResponsesInputItem(itemValue: unknown): unknown {
   const role = typeof item.role === "string" ? item.role : "user";
   const type = typeof item.type === "string" ? item.type : "";
 
+  if (type === "additional_tools") {
+    delete item.content;
+    return item;
+  }
+
   if (!type && item.content === undefined && typeof item.text === "string") {
-    return { type: "message", role, content: [{ type: textPartTypeForRole(role), text: item.text }] };
+    return {
+      type: "message",
+      role,
+      content: [{ type: textPartTypeForRole(role), text: item.text }],
+    };
   }
 
   if (!type && role) item.type = "message";
@@ -73,6 +126,25 @@ function normalizeResponsesInputItemForChat(value: unknown): unknown {
   const item = { ...(value as JsonRecord) };
   const hasType = typeof item.type === "string" && item.type.length > 0;
   const hasRole = typeof item.role === "string" && item.role.length > 0;
+
+  // Replayed calls must use the same wire identity as namespace declarations.
+  if (
+    (item.type === "function_call" || item.type === "custom_tool_call") &&
+    typeof item.namespace === "string" &&
+    typeof item.name === "string" &&
+    item.name.trim()
+  ) {
+    item.name = flattenNamespaceToolName(item.namespace, item.name.trim());
+  }
+
+  const agentMessage = normalizeAgentMessageForChat(item);
+  if (agentMessage) return agentMessage;
+  if (item.type === "agent_message") {
+    // Malformed agent messages have no lossless Chat equivalent.
+    // Treat them like other Responses-only metadata instead of failing the whole turn.
+    return { type: "reasoning" };
+  }
+
   if (hasType || hasRole) {
     if (!hasType && hasRole) item.type = "message";
     return item;

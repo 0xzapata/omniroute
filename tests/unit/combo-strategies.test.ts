@@ -17,6 +17,8 @@ const { clearAllStickyBindings } =
 const { invalidateCodexQuotaCache, registerCodexConnection, registerCodexQuotaFetcher } =
   await import("../../open-sse/services/codexQuotaFetcher.ts");
 const { registerQuotaFetcher } = await import("../../open-sse/services/quotaPreflight.ts");
+const { getQuotaScopedModelForProvider } =
+  await import("../../open-sse/services/antigravityQuotaFamily.ts");
 const combosDb = await import("../../src/lib/db/combos.ts");
 const providersDb = await import("../../src/lib/db/providers.ts");
 const { recordComboRequest } = await import("../../open-sse/services/comboMetrics.ts");
@@ -24,7 +26,7 @@ const { saveModelsDevCapabilities } = await import("../../src/lib/modelsDevSync.
 
 after(() => {
   dbCore.resetDbInstance();
-  fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true });
+  fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   if (ORIGINAL_DATA_DIR === undefined) {
     delete process.env.DATA_DIR;
   } else {
@@ -213,11 +215,16 @@ test("least-used strategy prefers the model with fewer recorded combo requests",
     models: [busyModel, idleModel],
   });
 
-  recordComboRequest(name, busyModel, {
-    success: true,
-    latencyMs: 10,
-    strategy: "least-used",
-  });
+  // Prime usage through a real handleComboChat call rather than calling
+  // recordComboRequest() directly: least-used sorts by the per-target
+  // executionKey (combo-name + step-id), not by the bare model string
+  // (#7015/#7059 — sortTargetsByUsage keys byTarget[executionKey] so accounts
+  // sharing a modelStr don't collapse into one bucket). Recording without a
+  // `target` falls back to keying by modelStr, which never matches the real
+  // executionKey and made this assertion flaky against the intended fix.
+  // With no prior usage, least-used ties at 0 and keeps combo order, so this
+  // priming call always lands on busyModel (first in the models array).
+  assert.equal(await selectedModelFor(combo, reqBodyTextArray), busyModel);
 
   assert.equal(await selectedModelFor(combo, reqBodyTextArray), idleModel);
 });
@@ -427,6 +434,14 @@ test("reset-aware strategy avoids accounts near 5h exhaustion", async (t) => {
   const combo = resetAwareCombo(`reset-aware-guard-${randomUUID()}`, [exhausted5h, healthy5h]);
 
   assert.equal(await selectedConnectionFor(combo), healthy5h.id);
+});
+
+test("Antigravity aliases share one family-scoped cache key", () => {
+  assert.equal(getQuotaScopedModelForProvider("agy", "gemini-3.7-flash-high"), "family:gemini");
+  assert.equal(
+    getQuotaScopedModelForProvider("antigravity", "gemini-3.7-flash-high"),
+    "family:gemini"
+  );
 });
 
 test("reset-aware strategy rotates similar scores with round-robin tie breaking", async () => {

@@ -8,8 +8,16 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const TEST_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "omniroute-err-sanitize-"));
+const TEST_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), "omniroute-err-sanitize-"));
+const TEST_DATA_DIR = path.join(TEST_ROOT, "data");
+const TEST_PLUGINS_DIR = path.join(TEST_ROOT, "plugins");
+const ORIGINAL_DATA_DIR = process.env.DATA_DIR;
+const ORIGINAL_PLUGINS_DIR = process.env.OMNIROUTE_PLUGINS_DIR;
+const ORIGINAL_API_KEY_SECRET = process.env.API_KEY_SECRET;
+fs.mkdirSync(TEST_DATA_DIR, { recursive: true });
+fs.mkdirSync(TEST_PLUGINS_DIR, { recursive: true });
 process.env.DATA_DIR = TEST_DATA_DIR;
+process.env.OMNIROUTE_PLUGINS_DIR = TEST_PLUGINS_DIR;
 process.env.API_KEY_SECRET = "test-api-key-secret-32chars-long!!";
 
 const core = await import("../../src/lib/db/core.ts");
@@ -32,7 +40,7 @@ function makeRequest(url: string, options: { method?: string; body?: unknown } =
 
 async function resetStorage() {
   core.resetDbInstance();
-  fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true });
+  fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   fs.mkdirSync(TEST_DATA_DIR, { recursive: true });
 }
 
@@ -42,7 +50,13 @@ test.beforeEach(async () => {
 
 test.after(() => {
   core.resetDbInstance();
-  fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true });
+  if (ORIGINAL_DATA_DIR === undefined) delete process.env.DATA_DIR;
+  else process.env.DATA_DIR = ORIGINAL_DATA_DIR;
+  if (ORIGINAL_PLUGINS_DIR === undefined) delete process.env.OMNIROUTE_PLUGINS_DIR;
+  else process.env.OMNIROUTE_PLUGINS_DIR = ORIGINAL_PLUGINS_DIR;
+  if (ORIGINAL_API_KEY_SECRET === undefined) delete process.env.API_KEY_SECRET;
+  else process.env.API_KEY_SECRET = ORIGINAL_API_KEY_SECRET;
+  fs.rmSync(TEST_ROOT, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 async function createCombo(name: string, model: string) {
@@ -57,7 +71,7 @@ async function createCombo(name: string, model: string) {
 // ── model-combo-mappings routes ──────────────────────────────────────────────
 
 test("GET /model-combo-mappings returns empty list on fresh DB", async () => {
-  const res = await mappingsRoute.GET();
+  const res = await mappingsRoute.GET(makeRequest("http://localhost/api/model-combo-mappings"));
   assert.equal(res.status, 200);
   const body = (await res.json()) as any;
   assert.ok(Array.isArray(body.mappings), "body.mappings must be an array");
@@ -66,7 +80,7 @@ test("GET /model-combo-mappings returns empty list on fresh DB", async () => {
 });
 
 test("GET /model-combo-mappings error response never leaks raw error.message", async () => {
-  const res = await mappingsRoute.GET();
+  const res = await mappingsRoute.GET(makeRequest("http://localhost/api/model-combo-mappings"));
   // In the success case, there is no error field at all
   const body = (await res.json()) as any;
   if (res.status >= 500) {
@@ -243,6 +257,26 @@ test("buildErrorBody never exposes stack traces in its message", async () => {
   assert.ok(!body.error.message.includes("at /opt"));
 });
 
+test("buildErrorBody(499) yields client_disconnected for type and code", async () => {
+  const { buildErrorBody } = await import("../../open-sse/utils/error.ts");
+  const body = buildErrorBody(499, "Client disconnected: request_signal_aborted");
+  assert.equal(body.error.type, "client_disconnected");
+  assert.equal(body.error.code, "client_disconnected");
+  assert.equal(body.error.message, "Client disconnected: request_signal_aborted");
+});
+
+test("buildErrorBody preserves caller-supplied type/code overrides", async () => {
+  const { buildErrorBody } = await import("../../open-sse/utils/error.ts");
+  const body = buildErrorBody(502, "Upstream stream error", undefined, {
+    type: "stream_error",
+    code: "stream_pipeline_error",
+  });
+  assert.equal(body.error.type, "stream_error");
+  assert.equal(body.error.code, "stream_pipeline_error");
+  assert.notEqual(body.error.type, "server_error");
+  assert.notEqual(body.error.code, "bad_gateway");
+});
+
 test("types barrel keeps the model cooldown payload export only", async () => {
   const src = await read("src/types/index.ts");
   assert.match(src, /ModelCooldownErrorPayload/);
@@ -318,7 +352,8 @@ test("buildErrorBody — upstream details with stack key are stripped", async ()
     !("stack" in (body.upstream_details as any)),
     "stack must be stripped from upstream_details"
   );
-  assert.equal((body.upstream_details as any).code, "internal");
+  assert.equal((body.upstream_details as any).code, "");
+  assert.doesNotMatch(JSON.stringify(body.upstream_details), /internal/);
 });
 
 // ── createErrorResult with upstreamDetails ───────────────────────────────────
@@ -350,6 +385,48 @@ test("createErrorResult — exposes error code/type on the result object", async
   const result = createErrorResult(504, "upstream timeout", null, "UPSTREAM_TIMEOUT", "timeout");
   assert.equal(result.errorCode, "UPSTREAM_TIMEOUT");
   assert.equal(result.errorType, "timeout");
+});
+
+// ── createErrorResult.rawMessage (#7360) ──────────────────────────────────────
+//
+// `error` is sanitized to its first line (sanitizeErrorMessage) for the
+// client-facing response body — correct per Hard Rule #12. But internal
+// classification (checkFallbackError / Gemini TPM-vs-RPD metric detection)
+// needs the FULL multi-line upstream text, since Google's metric name and
+// retry hint live on lines 2-3. `rawMessage` carries the untruncated text on
+// the returned object only — it must never leak into the HTTP response body.
+
+test("createErrorResult — rawMessage preserves the full multi-line message untruncated", async () => {
+  const { createErrorResult } = await import("../../open-sse/utils/error.ts");
+  const fullMessage =
+    "You exceeded your current quota, please check your plan and billing details.\n" +
+    "* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_input_token_count, limit: 16000, model: gemma-4-31b\n" +
+    "Please retry in 8.093498133s.";
+  const result = createErrorResult(429, fullMessage);
+
+  assert.equal(result.rawMessage, fullMessage, "rawMessage must be the complete, untruncated text");
+  assert.ok(
+    result.error.length < fullMessage.length,
+    "error (client-facing) must still be truncated to the first line"
+  );
+  assert.ok(
+    !result.error.includes("generativelanguage.googleapis.com"),
+    "sanitized error must not include the metric name (line 2)"
+  );
+});
+
+test("createErrorResult — rawMessage never appears in the serialized response body", async () => {
+  const { createErrorResult } = await import("../../open-sse/utils/error.ts");
+  const fullMessage =
+    "You exceeded your current quota, please check your plan and billing details.\n" +
+    "* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_input_token_count, limit: 16000, model: gemma-4-31b";
+  const result = createErrorResult(429, fullMessage);
+  const bodyText = await result.response.clone().text();
+
+  assert.ok(
+    !bodyText.includes("generativelanguage.googleapis.com"),
+    "the raw multi-line metric text must never reach the HTTP response body"
+  );
 });
 
 test("buildModelCooldownBody returns the public cooldown error payload shape", async () => {

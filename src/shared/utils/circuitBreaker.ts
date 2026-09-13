@@ -32,11 +32,24 @@ import type { FailureKind } from "./classify429";
  * own ReadableStream controller). It carries no `statusCode`, so it defaults to
  * HTTP 502 and would otherwise trip the provider circuit breaker — blacklisting
  * the entire Codex provider for a bug that lives in our bridge, not upstream.
- * Use this with the breaker's `isFailure` option so the bridge error is ignored
- * by the provider breaker while genuine upstream 5xx failures still count.
+ *
+ * The same policy applies to CLIENT-side aborts: when the caller drops the
+ * connection mid-stream (combo race loser, model switch, tab close), the
+ * in-flight leg surfaces `request_signal_aborted` / `Client disconnected` /
+ * `AbortError` with no upstream status. Counting those as provider failures
+ * cascades one user action into provider cooldowns (`lastErrorCode=null`,
+ * `lastError=undefined`) and can dead-end a combo on its last resort target.
+ *
+ * Use this with the breaker's `isFailure` option so local lifecycle errors are
+ * ignored by the provider breaker while genuine upstream 5xx failures still count.
  */
 export function isLocalStreamLifecycleError(error: unknown): boolean {
   if (!error) return false;
+  const errName =
+    typeof (error as { name?: unknown }).name === "string"
+      ? ((error as { name: string }).name as string)
+      : "";
+  if (errName === "AbortError") return true;
   const message =
     typeof error === "string"
       ? error
@@ -44,7 +57,73 @@ export function isLocalStreamLifecycleError(error: unknown): boolean {
         ? ((error as { message: string }).message as string)
         : "";
   if (!message) return false;
-  return /controller is already closed/i.test(message);
+  return (
+    /controller is already closed/i.test(message) ||
+    /request_signal_aborted/i.test(message) ||
+    /client disconnected/i.test(message) ||
+    /operation was aborted/i.test(message)
+  );
+}
+
+const LOCAL_EXECUTION_CODES = new Set([
+  "ENOENT",
+  "EACCES",
+  "EPIPE",
+  "ERR_CHILD_PROCESS_STDIO_MAXBUFFER",
+]);
+
+const LOCAL_EXECUTION_PATTERNS = [
+  /\bspawn\b.*\b(ENOENT|EACCES|EPIPE)\b/i,
+  /\bcommand not found\b/i,
+  /\bis not recognized as an internal or external command\b/i,
+  /\bchild process exited with code\b/i,
+  /\blocal host execution error\b/i,
+];
+
+/**
+ * Detect a LOCAL host execution error (missing binary ENOENT, permission EACCES,
+ * broken pipe EPIPE, child process exit errors, etc.) that must NOT count as a
+ * whole-provider failure or trip remote provider circuit breakers.
+ */
+export function isLocalExecutionError(error: unknown): boolean {
+  if (!error) return false;
+  const errObj = typeof error === "object" ? (error as Record<string, unknown>) : null;
+  const code = typeof errObj?.code === "string" ? errObj.code : "";
+  if (LOCAL_EXECUTION_CODES.has(code)) return true;
+
+  const message =
+    typeof error === "string"
+      ? error
+      : typeof errObj?.message === "string"
+        ? (errObj.message as string)
+        : "";
+  if (!message) return false;
+
+  return LOCAL_EXECUTION_PATTERNS.some((p) => p.test(message));
+}
+
+/**
+ * Anthropic/Claude model-capacity overload (HTTP 529, body "Overloaded", or a
+ * STREAM_EARLY_EOF that wraps that body as 502). This is one model being
+ * capacity-throttled, not a whole-provider outage — the same account still
+ * serves sibling models. Must not trip the provider circuit breaker.
+ *
+ * Accepts an error object/string OR a numeric HTTP status (529). Callers
+ * pass both `error` and `status` at the two breaker predicates.
+ *
+ * Live incident 2026-09-03: STREAM_EARLY_EOF: Overloaded opened `claude` and
+ * a single-target combo then pre-skipped with ALL_TARGETS_SKIPPED in ~43ms.
+ */
+export function isModelCapacityOverloadError(error: unknown): boolean {
+  if (error === 529) return true;
+  if (typeof error === "number") return false;
+  if (!error) return false;
+  const errObj = typeof error === "object" ? (error as Record<string, unknown>) : null;
+  if (errObj && (errObj.status === 529 || errObj.statusCode === 529)) return true;
+  const message =
+    typeof error === "string" ? error : typeof errObj?.message === "string" ? errObj.message : "";
+  if (!message) return false;
+  return /\boverloaded(?:_error)?\b/i.test(message);
 }
 
 export const STATE = {
@@ -95,12 +174,45 @@ interface CircuitBreakerOptions {
   backoffEscalationCount?: number;
 }
 
-interface TransitionRecord {
+/**
+ * How a RESOLVED `execute()` result is accounted (#12254). Callers such as
+ * `handleChatCore()` report most upstream failures by resolving with
+ * `{ success: false, status: 5xx }` instead of throwing, so a breaker that reads every
+ * resolution as a success never trips on that path.
+ */
+export type CircuitBreakerResultOutcome = "success" | "failure" | "ignore";
+
+export interface CircuitBreakerExecuteOptions<T> {
+  /**
+   * Classify a resolved result. Omitted: every resolution is a success (the
+   * throw-based contract every other caller relies on). Return "ignore" when the
+   * call site accounts for the outcome itself with request context the breaker
+   * does not have — the chat path does (`classifyProviderBreakerResult()` in
+   * chat.ts, `recordProviderFailure()`/`recordProviderSuccess()` in combo.ts).
+   */
+  classifyResult?: (result: T) => CircuitBreakerResultOutcome;
+}
+
+export interface TransitionRecord {
   from: string;
   to: string;
   timestamp: number;
   failureCount: number;
   reason?: string;
+}
+
+export interface CircuitBreakerStatus {
+  name: string;
+  state: string;
+  failureCount: number;
+  lastFailureTime: number | null;
+  retryAfterMs: number;
+  lastFailureKind: string | null;
+  openCycleCount: number;
+  kindFailureCounts: Record<string, number>;
+  degradationThreshold: number;
+  effectiveResetTimeout: number;
+  transitionHistory: TransitionRecord[];
 }
 
 export class CircuitBreaker {
@@ -231,7 +343,7 @@ export class CircuitBreaker {
     );
   }
 
-  async execute<T>(fn: () => Promise<T>): Promise<T> {
+  async execute<T>(fn: () => Promise<T>, options?: CircuitBreakerExecuteOptions<T>): Promise<T> {
     this._refreshOpenState();
 
     if (this.state === STATE.OPEN) {
@@ -256,7 +368,7 @@ export class CircuitBreaker {
 
     try {
       const result = await fn();
-      this._onSuccess();
+      this._recordResolvedResult(result, options?.classifyResult);
       return result;
     } catch (error) {
       if (this.isFailure(error)) {
@@ -282,7 +394,7 @@ export class CircuitBreaker {
     return false;
   }
 
-  getStatus() {
+  getStatus(): CircuitBreakerStatus {
     this._refreshOpenState();
     return {
       name: this.name,
@@ -295,6 +407,7 @@ export class CircuitBreaker {
       kindFailureCounts: { ...this.kindFailureCounts },
       degradationThreshold: this.degradationThreshold,
       effectiveResetTimeout: this._effectiveResetTimeout(),
+      transitionHistory: [...this.transitionHistory],
     };
   }
 
@@ -316,6 +429,29 @@ export class CircuitBreaker {
   }
 
   // ─── Internal ─────────────────────────────────
+
+  /**
+   * Account a resolved `execute()` result exactly once. A classifier that throws
+   * falls back to the legacy "resolved = success" reading, mirroring `classifyError`.
+   */
+  _recordResolvedResult<T>(
+    result: T,
+    classifyResult?: (result: T) => CircuitBreakerResultOutcome
+  ): void {
+    let outcome: CircuitBreakerResultOutcome = "success";
+    if (classifyResult) {
+      try {
+        outcome = classifyResult(result);
+      } catch {
+        outcome = "success";
+      }
+    }
+    if (outcome === "failure") {
+      this._onFailure();
+    } else if (outcome === "success") {
+      this._onSuccess();
+    }
+  }
 
   _onSuccess() {
     if (this.state === STATE.OPEN) {

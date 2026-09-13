@@ -82,6 +82,32 @@ function hasEncryptedCredentials(dataDir) {
   const dbPath = join(dataDir, "storage.sqlite");
   if (!existsSync(dbPath)) return false;
 
+  if (process.versions.bun) {
+    try {
+      const { Database } = require("bun:sqlite");
+      const db = new Database(dbPath, { readonly: true, create: false });
+      try {
+        const row = db
+          .query(
+            `SELECT 1
+               FROM provider_connections
+              WHERE access_token LIKE 'enc:v1:%'
+                 OR refresh_token LIKE 'enc:v1:%'
+                 OR api_key LIKE 'enc:v1:%'
+                 OR id_token LIKE 'enc:v1:%'
+              LIMIT 1`
+          )
+          .get();
+        return !!row;
+      } finally {
+        db.close();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Unable to inspect existing database at ${dbPath}: ${message}`);
+    }
+  }
+
   try {
     const Database = require("better-sqlite3");
     const db = new Database(dbPath, { readonly: true, fileMustExist: true });
@@ -173,7 +199,14 @@ export function bootstrapEnv({ dataDirOverride, quiet = false } = {}) {
   const preferredEnvFiltered = Object.fromEntries(
     Object.entries(preferredEnv).filter(([, v]) => typeof v === "string" && v.length > 0)
   );
-  const merged = { ...persisted, ...preferredEnvFiltered, ...process.env };
+  // Filter empty strings from process.env so that Docker `-e KEY=` (which sets an
+  // empty string) does not override real values persisted in server.env or set
+  // in .env. Only shell/Docker vars that the operator actually set should win.
+  // Mirrors the filtering already applied to preferredEnv above. (fixes #6824)
+  const processEnvFiltered = Object.fromEntries(
+    Object.entries(process.env).filter(([, v]) => typeof v === "string" && v.length > 0)
+  );
+  const merged = { ...persisted, ...preferredEnvFiltered, ...processEnvFiltered };
 
   // ── Auto-generate required secrets ────────────────────────────────────────
   let needsPersist = false;

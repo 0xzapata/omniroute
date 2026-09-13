@@ -9,6 +9,9 @@
  */
 
 import type { AccessSchedule, RateLimitRule } from "./types";
+import { ALL_COMBOS_ACCESS_RULE } from "@/shared/constants/comboAccess";
+export { parseModelAccessMode } from "./modelAccessMode";
+export type { ModelAccessMode } from "./modelAccessMode";
 
 /**
  * Helper function to safely parse allowed_models JSON
@@ -28,6 +31,9 @@ export function parseAllowedModels(value: unknown): string[] {
 }
 
 export function parseAllowedCombos(value: unknown): string[] {
+  // Migration 149 may already be recorded before an older writer creates a key.
+  // Preserve those legacy NULL rows as allow-all while keeping explicit [] deny-all.
+  if (value === null || value === undefined) return [ALL_COMBOS_ACCESS_RULE];
   return parseStringList(value);
 }
 
@@ -47,8 +53,18 @@ export function parseAllowUsageCommand(value: unknown): boolean {
   return value === true || value === 1 || value === "1";
 }
 
+export function parseChaosModeEnabled(value: unknown): boolean {
+  return value === true || value === 1 || value === "1";
+}
+
 export function parseIsActive(value: unknown): boolean {
   // DEFAULT 1 — active unless explicitly set to 0
+  if (value === 0 || value === "0" || value === false) return false;
+  return true;
+}
+
+export function parseCompressionEnabled(value: unknown): boolean {
+  // DEFAULT 1 — preserve compression for legacy rows unless explicitly disabled.
   if (value === 0 || value === "0" || value === false) return false;
   return true;
 }
@@ -158,4 +174,8 @@ export function parseIsBanned(value: unknown): boolean {
 
 export function parseStreamDefaultMode(value: unknown): "legacy" | "json" {
   return value === "json" ? "json" : "legacy";
+}
+
+export function parseCacheDefaultMode(value: unknown): "legacy" | "bypass" {
+  return value === "bypass" ? "bypass" : "legacy";
 }
