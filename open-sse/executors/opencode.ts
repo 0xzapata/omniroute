@@ -462,7 +462,12 @@ export class OpencodeExecutor extends BaseExecutor {
   }
 
   async execute(input: ExecuteInput) {
-    this._requestFormat = resolveOpencodeTargetFormat(this.provider, input.model);
+    const resolvedFormat = input.credentials?.providerSpecificData?._omnirouteOpencodeTargetFormat;
+    this._requestFormat =
+      typeof resolvedFormat === "string" &&
+      ["openai", "openai-responses", "claude", "gemini"].includes(resolvedFormat)
+        ? resolvedFormat
+        : resolveOpencodeTargetFormat(this.provider, input.model);
 
     // #8681: Gate premium opencode models behind a usable API key.
     // When the connection is keyless (no apiKey, no accessToken) and the model

@@ -165,6 +165,11 @@ export function resolveExecutionCredentials(opts: {
     providerSpecificData.targetFormat = targetFormat;
   }
 
+  // Keep OpenCode's URL and body handling on the same resolved protocol as translation.
+  if (provider === "opencode" || provider === "opencode-zen" || provider === "opencode-go") {
+    providerSpecificData._omnirouteOpencodeTargetFormat = targetFormat;
+  }
+
   applyKimiExecutionMetadata(providerSpecificData, provider, targetFormat, modelInfo);
   const withApiType = {
     ...nextCredentials,
