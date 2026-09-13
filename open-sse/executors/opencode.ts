@@ -31,6 +31,13 @@ import {
 import { isNetworkRotationSharedEgressGuardEnabled } from "@/shared/utils/featureFlags";
 
 /**
+ * The main OpenCode Zen host, shared by the `opencode` and `opencode-zen`
+ * registry entries. Used to scope the `x-api-key` auth override (#12633) away
+ * from `opencode-go`, which serves a different upstream (`.../zen/go/v1`).
+ */
+const ZEN_BASE_URL = "https://opencode.ai/zen/v1";
+
+/**
  * Per-account proxy configuration, persisted by NoAuthAccountCard under
  * `providerSpecificData.accountProxies` (keyed by the account id, which the UI
  * stores in `providerSpecificData.fingerprints`). Same shape mimocode uses.
@@ -85,6 +92,8 @@ const OPENCODE_FREE_MODELS = new Set([
  *   grok-4.5 low/medium/high; hy3 none/low/high; kimi-k3 max;
  *   qwen3.6-plus / qwen3.7-max / qwen3.7-plus high/max;
  *   muse-spark-1.2-contributor minimal/low/medium/high/xhigh (no max)
+ * - #12674 Muse Spark 1.3 Contributor: minimal/low/medium/high/xhigh (no max),
+ *   verified via `opencode models opencode-go --refresh --verbose`
  */
 const EFFORT_TIERS: Record<string, readonly string[]> = {
   "deepseek-v4-pro": EFFORT_LEVELS,
@@ -98,6 +107,7 @@ const EFFORT_TIERS: Record<string, readonly string[]> = {
   "qwen3.7-max": ["high", "max"],
   "qwen3.7-plus": ["high", "max"],
   "muse-spark-1.2-contributor": ["minimal", "low", "medium", "high", "xhigh"],
+  "muse-spark-1.3-contributor": ["minimal", "low", "medium", "high", "xhigh"],
 };
 
 /**
@@ -459,7 +469,12 @@ export class OpencodeExecutor extends BaseExecutor {
   }
 
   async execute(input: ExecuteInput) {
-    this._requestFormat = resolveOpencodeTargetFormat(this.provider, input.model);
+    const resolvedFormat = input.credentials?.providerSpecificData?._omnirouteOpencodeTargetFormat;
+    this._requestFormat =
+      typeof resolvedFormat === "string" &&
+      ["openai", "openai-responses", "claude", "gemini"].includes(resolvedFormat)
+        ? resolvedFormat
+        : resolveOpencodeTargetFormat(this.provider, input.model);
 
     // #8681: Gate premium opencode models behind a usable API key.
     // When the connection is keyless (no apiKey, no accessToken) and the model
@@ -712,6 +727,20 @@ export class OpencodeExecutor extends BaseExecutor {
     }
   }
 
+  /**
+   * #12633: OpenCode Zen's `/v1/responses` endpoint (reached when
+   * `_requestFormat === "openai-responses"`, e.g. Muse Spark Contributor
+   * models) requires `x-api-key`, not `Authorization: Bearer` — unlike the
+   * default `/chat/completions` endpoint on the same host, which accepts
+   * Bearer. Scoped by baseUrl (not provider id/alias) so this only applies to
+   * the main Zen host (`opencode` / `opencode-zen`, both `https://opencode.ai/zen/v1`)
+   * and never to opencode-go, which serves Responses-format models from a
+   * different upstream (`https://opencode.ai/zen/go/v1`) that expects Bearer.
+   */
+  private usesZenApiKeyAuth(): boolean {
+    return this._requestFormat === "openai-responses" && this.config?.baseUrl === ZEN_BASE_URL;
+  }
+
   buildHeaders(
     credentials: ProviderCredentials | null,
     stream = true,
@@ -728,7 +757,7 @@ export class OpencodeExecutor extends BaseExecutor {
       : undefined;
 
     if (key) {
-      if (this._requestFormat === "claude") {
+      if (this._requestFormat === "claude" || this.usesZenApiKeyAuth()) {
         headers["x-api-key"] = key;
       } else {
         headers["Authorization"] = `Bearer ${key}`;
