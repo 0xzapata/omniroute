@@ -1,3 +1,6 @@
+import { flattenNamespaceToolName } from "../translator/request/openai-responses/namespaceFlatten.ts";
+import { unsupportedFeature } from "../translator/request/openai-responses/helpers.ts";
+
 type JsonRecord = Record<string, unknown>;
 
 function normalizeAgentMessageForChat(item: JsonRecord): JsonRecord | null {
@@ -13,9 +16,10 @@ function normalizeAgentMessageForChat(item: JsonRecord): JsonRecord | null {
 
     const part = partValue as JsonRecord;
     if (part.type === "encrypted_content") {
-      // Chat Completions has no encrypted agent-message equivalent. Do not leak a
-      // partial plaintext envelope or forward an opaque payload the model cannot use.
-      return null;
+      // Never run a child without its assignment or reinterpret opaque content as text.
+      throw unsupportedFeature(
+        "Encrypted agent messages cannot be translated to Chat Completions. Use a native Responses provider or send the assignment as plaintext input_text."
+      );
     }
     if (part.type !== "input_text" || typeof part.text !== "string") return null;
     textParts.push(part.text);
@@ -26,7 +30,7 @@ function normalizeAgentMessageForChat(item: JsonRecord): JsonRecord | null {
 
   return {
     type: "message",
-    role: "assistant",
+    role: text.startsWith("Message Type: NEW_TASK\n") ? "user" : "assistant",
     content: [{ type: "input_text", text }],
   };
 }
@@ -123,10 +127,20 @@ function normalizeResponsesInputItemForChat(value: unknown): unknown {
   const hasType = typeof item.type === "string" && item.type.length > 0;
   const hasRole = typeof item.role === "string" && item.role.length > 0;
 
+  // Replayed calls must use the same wire identity as namespace declarations.
+  if (
+    (item.type === "function_call" || item.type === "custom_tool_call") &&
+    typeof item.namespace === "string" &&
+    typeof item.name === "string" &&
+    item.name.trim()
+  ) {
+    item.name = flattenNamespaceToolName(item.namespace, item.name.trim());
+  }
+
   const agentMessage = normalizeAgentMessageForChat(item);
   if (agentMessage) return agentMessage;
   if (item.type === "agent_message") {
-    // Encrypted or malformed agent messages have no lossless Chat equivalent.
+    // Malformed agent messages have no lossless Chat equivalent.
     // Treat them like other Responses-only metadata instead of failing the whole turn.
     return { type: "reasoning" };
   }
