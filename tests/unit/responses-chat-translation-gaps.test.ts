@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-const { openaiResponsesToOpenAIRequest } =
-  await import("../../open-sse/translator/request/openai-responses.ts");
+const { openaiResponsesToOpenAIRequest } = await import(
+  "../../open-sse/translator/request/openai-responses.ts"
+);
 
 function translate(body: Record<string, unknown>): Record<string, unknown> {
   return openaiResponsesToOpenAIRequest("gpt-5", body, false, null) as Record<string, unknown>;
@@ -157,25 +158,29 @@ test("Responses -> Chat converts plaintext agent_message items to assistant hist
   ]);
 });
 
-test("Responses -> Chat skips encrypted or mixed agent_message items", () => {
-  const result = translate({
-    input: [
-      { type: "message", role: "user", content: [{ type: "input_text", text: "Run the task" }] },
-      {
-        type: "agent_message",
-        author: "worker",
-        recipient: "parent",
-        content: [
-          { type: "input_text", text: "Message Type: NEW_TASK\nPayload:\n" },
-          { type: "encrypted_content", encrypted_content: "opaque" },
+test("Responses -> Chat rejects encrypted or mixed agent_message items", () => {
+  assert.throws(
+    () =>
+      translate({
+        input: [
+          {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: "Run the task" }],
+          },
+          {
+            type: "agent_message",
+            author: "worker",
+            recipient: "parent",
+            content: [
+              { type: "input_text", text: "Message Type: NEW_TASK\nPayload:\n" },
+              { type: "encrypted_content", encrypted_content: "opaque" },
+            ],
+          },
         ],
-      },
-    ],
-  });
-
-  assert.deepEqual(result.messages, [
-    { role: "user", content: [{ type: "text", text: "Run the task" }] },
-  ]);
+      }),
+    /Encrypted agent messages cannot be translated/
+  );
 });
 
 test("Responses -> Chat consumes additional_tools input items without emitting messages", () => {
@@ -229,4 +234,46 @@ test("Responses -> Chat strips Responses-only execution and cache fields", () =>
   assert.equal(result.prompt_cache_retention, undefined);
   assert.deepEqual(result.metadata, { keep: true });
   assert.equal(result.parallel_tool_calls, true);
+});
+
+test("Responses -> Chat replays namespace calls using their declared wire name", () => {
+  for (const custom of [false, true]) {
+    const result = translate({
+      tools: [
+        {
+          type: "namespace",
+          name: "agents",
+          tools: [
+            {
+              type: custom ? "custom" : "function",
+              name: "spawn_agent",
+              parameters: { type: "object" },
+            },
+          ],
+        },
+      ],
+      input: [
+        {
+          type: custom ? "custom_tool_call" : "function_call",
+          namespace: "agents",
+          name: "spawn_agent",
+          call_id: "call_1",
+          arguments: "{}",
+          input: "ACK",
+        },
+        {
+          type: custom ? "custom_tool_call_output" : "function_call_output",
+          call_id: "call_1",
+          output: "ACK",
+        },
+      ],
+    });
+    const tools = result.tools as Array<{ function: { name: string } }>;
+    const messages = result.messages as Array<{
+      tool_calls?: Array<{ id: string; function: { name: string } }>;
+      tool_call_id?: string;
+    }>;
+    assert.equal(messages[0].tool_calls?.[0].function.name, tools[0].function.name);
+    assert.equal(messages[0].tool_calls?.[0].id, messages[1].tool_call_id);
+  }
 });
