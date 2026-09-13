@@ -1,12 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { buildComboTestRequestBody, extractComboTestResponseText } from "@/lib/combos/testHealth";
-import { getComboByName, getCombos, pickApiKeyForInternalUse } from "@/lib/localDb";
+import { getComboByName, getCombos } from "@/lib/db/combos";
+import { pickApiKeyForInternalUse } from "@/lib/db/apiKeys";
 import { getRuntimePorts } from "@/lib/runtime/ports";
 import { resolveNestedComboTargets } from "@omniroute/open-sse/services/combo.ts";
 import { testComboSchema } from "@/shared/validation/schemas";
 import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
+import { sanitizeErrorMessage } from "@omniroute/open-sse/utils/error";
 
 async function getInternalApiKey(): Promise<string | null> {
   // Combo health-check probes hit /v1/chat/completions, which enforces
@@ -115,7 +117,7 @@ async function testComboTarget(target, baseInternalUrl, internalApiKey: string |
     const latencyMs = Date.now() - startTime;
     return buildComboTestResult(target, {
       status: "error",
-      error: error.name === "AbortError" ? "Timeout (20s)" : error.message,
+      error: error.name === "AbortError" ? "Timeout (20s)" : sanitizeErrorMessage(error.message),
       latencyMs,
     });
   }

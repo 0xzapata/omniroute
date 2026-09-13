@@ -1,13 +1,27 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, type CSSProperties } from "react";
+import {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useSyncExternalStore,
+  type CSSProperties,
+} from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/shared/utils/cn";
 import { getActiveSidebarHref } from "@/shared/utils/sidebarRouteMatch";
+import { filterSidebarSectionsByQuery } from "@/shared/utils/sidebarSearch";
+import {
+  expandActiveSection,
+  hydrateExpandedSections,
+  toggleExpandedSection,
+} from "@/shared/utils/sidebarExpansionState";
 import { APP_CONFIG } from "@/shared/constants/appConfig";
 import OmniRouteLogo from "./OmniRouteLogo";
 import Button from "./Button";
+import Input from "./Input";
 import { ConfirmModal } from "./Modal";
 import CloudSyncStatus from "./CloudSyncStatus";
 import { useTranslations } from "next-intl";
@@ -25,6 +39,8 @@ import {
   applySectionOrder,
   applyItemOrder,
   getSidebarIconAccent,
+  isSidebarItemVisibleForFlags,
+  resolveRuntimeSidebarSections,
   type SidebarSectionId,
   type SidebarItemDefinition,
   type SidebarItemGroup,
@@ -50,11 +66,10 @@ type SidebarProps = {
 
 type HoveredItem = { id: string; label: string; x: number; y: number } | null;
 
-function loadFromStorage<T>(key: string, fallback: T): T {
+function parseStoredArray<T>(raw: string | null, fallback: T): T {
   try {
-    const stored = localStorage.getItem(key);
-    if (stored) {
-      const parsed = JSON.parse(stored);
+    if (raw) {
+      const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) return parsed as T;
     }
   } catch {}
@@ -65,6 +80,29 @@ function saveToStorage(key: string, value: unknown) {
   try {
     localStorage.setItem(key, JSON.stringify(value));
   } catch {}
+}
+
+// useSyncExternalStore plumbing for the one-shot localStorage hydration reads:
+// nothing to subscribe to (the values are only read once, before
+// sidebarExpansionLoaded flips), and the server snapshot is always null so the
+// SSR/hydration render matches the server output.
+const noopSubscribe = () => () => {};
+const getServerSnapshotNull = () => null;
+const getHydratedSnapshot = () => true;
+const getServerHydratedSnapshot = () => false;
+function readStoredExpandedRaw() {
+  try {
+    return localStorage.getItem(EXPANDED_SECTIONS_KEY);
+  } catch {
+    return null;
+  }
+}
+function readStoredPinnedRaw() {
+  try {
+    return localStorage.getItem(PINNED_SECTIONS_KEY);
+  } catch {
+    return null;
+  }
 }
 
 export default function Sidebar({
@@ -92,6 +130,11 @@ export default function Sidebar({
   const [showDebug, setShowDebug] = useState(false);
   const [hiddenSidebarItems, setHiddenSidebarItems] = useState<string[]>([]);
   const [hiddenSidebarGroupLabels, setHiddenSidebarGroupLabels] = useState<string[]>([]);
+  // Feature-flag map for flag-gated items (e.g. "radar" -> RADAR_ENABLED).
+  // Fails open (see isSidebarItemVisibleForFlags) so a missing key never
+  // hides an unrelated item — only set once /api/settings resolves.
+  const [featureFlags, setFeatureFlags] = useState<Record<string, boolean>>({});
+  const [radarAdminUrl, setRadarAdminUrl] = useState<unknown>(null);
   const [sidebarSectionOrder, setSidebarSectionOrder] = useState<SidebarSectionId[]>([]);
   const [sidebarItemOrder, setSidebarItemOrder] = useState<SidebarItemOrder>({});
   const [customAppName, setCustomAppName] = useState<string | null>(null);
@@ -100,35 +143,48 @@ export default function Sidebar({
     new Set([DEFAULT_EXPANDED])
   );
   const [pinnedSections, setPinnedSections] = useState<Set<SidebarSectionId>>(new Set());
+  const [sidebarExpansionLoaded, setSidebarExpansionLoaded] = useState(false);
+  const [skipInitialActiveExpansion, setSkipInitialActiveExpansion] = useState(false);
   const [hoveredItem, setHoveredItem] = useState<HoveredItem>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
-  // Load persisted state on mount; OmniProxy is pinned by default on first visit
-  useEffect(() => {
-    const storedExpanded = loadFromStorage<SidebarSectionId[]>(EXPANDED_SECTIONS_KEY, [
+  // Load persisted state once the client has hydrated. A stored [] intentionally
+  // means "all sections collapsed". localStorage is read through
+  // useSyncExternalStore snapshots (server snapshot: null) and the states are
+  // adjusted during render (react.dev "You Might Not Need an Effect") so the
+  // stored expansion applies before paint without a synchronous effect setState.
+  const hydrated = useSyncExternalStore(
+    noopSubscribe,
+    getHydratedSnapshot,
+    getServerHydratedSnapshot
+  );
+  const storedExpandedRaw = useSyncExternalStore(
+    noopSubscribe,
+    readStoredExpandedRaw,
+    getServerSnapshotNull
+  );
+  const storedPinnedRaw = useSyncExternalStore(
+    noopSubscribe,
+    readStoredPinnedRaw,
+    getServerSnapshotNull
+  );
+  if (hydrated && !sidebarExpansionLoaded) {
+    const storedExpanded = parseStoredArray<SidebarSectionId[]>(storedExpandedRaw, [
       DEFAULT_EXPANDED,
     ]);
-    const pinnedRaw = (() => {
-      try {
-        return localStorage.getItem(PINNED_SECTIONS_KEY);
-      } catch {
-        return null;
-      }
-    })();
     const storedPinned: SidebarSectionId[] =
-      pinnedRaw !== null
-        ? (JSON.parse(pinnedRaw) as SidebarSectionId[])
+      storedPinnedRaw !== null
+        ? parseStoredArray<SidebarSectionId[]>(storedPinnedRaw, [])
         : (SIDEBAR_SECTIONS.filter((s) => s.defaultPinned).map((s) => s.id) as SidebarSectionId[]);
 
-    const initialExpanded = new Set<SidebarSectionId>(
-      storedExpanded.length > 0 ? storedExpanded : [DEFAULT_EXPANDED]
-    );
     const initialPinned = new Set<SidebarSectionId>(storedPinned);
-    // Pinned sections must also be expanded
-    for (const id of initialPinned) initialExpanded.add(id);
+    const initialExpanded = hydrateExpandedSections(storedExpanded, initialPinned);
 
+    setSkipInitialActiveExpansion(storedExpanded.length === 0);
     setExpandedSections(initialExpanded);
     setPinnedSections(initialPinned);
-  }, []);
+    setSidebarExpansionLoaded(true);
+  }
 
   useEffect(() => {
     const applySettings = (data) => {
@@ -139,6 +195,10 @@ export default function Sidebar({
       );
       setCustomAppName(data?.instanceName || null);
       setCustomLogo(data?.customLogoBase64 || data?.customLogoUrl || null);
+      if (typeof data?.radarEnabled === "boolean") {
+        setFeatureFlags((prev) => ({ ...prev, RADAR_ENABLED: data.radarEnabled }));
+      }
+      setRadarAdminUrl(data?.radarAdminUrl ?? null);
     };
 
     fetch("/api/settings")
@@ -198,6 +258,7 @@ export default function Sidebar({
 
   const resolveItem = (item: SidebarItemDefinition, hidden: Set<string>) => {
     if (hidden.has(item.id)) return null;
+    if (!isSidebarItemVisibleForFlags(item, featureFlags)) return null;
     const subtitle = item.subtitleKey
       ? getSidebarLabel(item.subtitleKey, item.subtitleFallback ?? "")
       : item.subtitleFallback;
@@ -211,8 +272,9 @@ export default function Sidebar({
   const hiddenSidebarSet = new Set(hiddenSidebarItems);
   const hiddenSidebarGroupLabelsSet = new Set(hiddenSidebarGroupLabels);
 
+  const runtimeSections = resolveRuntimeSidebarSections(SIDEBAR_SECTIONS, { radarAdminUrl });
   const orderedSections = applySectionOrder(
-    SIDEBAR_SECTIONS.filter((section) => section.visibility !== "debug" || showDebug),
+    runtimeSections.filter((section) => section.visibility !== "debug" || showDebug),
     sidebarSectionOrder
   );
 
@@ -266,48 +328,56 @@ export default function Sidebar({
 
   const activeHref = getActiveSidebarHref(pathname, allVisibleItems);
 
-  // Auto-expand the section containing the active page (without closing others)
-  useEffect(() => {
-    if (collapsed) return;
-    for (const section of visibleSections) {
-      const sectionItems = section.children.flatMap((child: any) =>
-        child.type === "group" ? child.items : [child]
-      );
-      if (sectionItems.some((item: any) => !item.external && item.href === activeHref)) {
-        setExpandedSections((prev) => {
-          if (prev.has(section.id as SidebarSectionId)) return prev;
-          const next = new Set(prev);
-          next.add(section.id as SidebarSectionId);
-          saveToStorage(EXPANDED_SECTIONS_KEY, [...next]);
-          return next;
-        });
-        break;
+  const isSearching = searchQuery.trim().length > 0;
+  const displaySections = isSearching
+    ? filterSidebarSectionsByQuery(visibleSections, searchQuery)
+    : visibleSections;
+
+  // Keep the active page visible while preserving accordion semantics for
+  // unpinned sections. Render-time adjustment (react.dev "You Might Not Need
+  // an Effect"): the composite key mirrors the old effect's
+  // [activeHref, collapsed, pinnedSections, sidebarExpansionLoaded] deps.
+  const activeExpansionKey = `${collapsed}|${sidebarExpansionLoaded}|${activeHref ?? ""}|${[
+    ...pinnedSections,
+  ]
+    .sort()
+    .join(",")}`;
+  const [prevActiveExpansionKey, setPrevActiveExpansionKey] = useState<string | null>(null);
+  if (activeExpansionKey !== prevActiveExpansionKey) {
+    setPrevActiveExpansionKey(activeExpansionKey);
+    if (!collapsed && sidebarExpansionLoaded) {
+      if (skipInitialActiveExpansion) {
+        setSkipInitialActiveExpansion(false);
+      } else {
+        for (const section of visibleSections) {
+          const sectionItems = section.children.flatMap((child: any) =>
+            child.type === "group" ? child.items : [child]
+          );
+          if (sectionItems.some((item: any) => !item.external && item.href === activeHref)) {
+            setExpandedSections((prev) => {
+              const next = expandActiveSection(pinnedSections, section.id as SidebarSectionId);
+              if ([...next].every((id) => prev.has(id)) && next.size === prev.size) return prev;
+              return next;
+            });
+            break;
+          }
+        }
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeHref, collapsed]);
+  }
+
+  // Persist the expanded-section set whenever it changes after hydration —
+  // single writer replacing the saveToStorage calls that used to run inside
+  // setState updaters (side effects belong outside updaters).
+  useEffect(() => {
+    if (!sidebarExpansionLoaded) return;
+    saveToStorage(EXPANDED_SECTIONS_KEY, [...expandedSections]);
+  }, [expandedSections, sidebarExpansionLoaded]);
 
   // Accordion toggle: opening a section closes all non-pinned sections
   const toggleSection = useCallback(
     (sectionId: SidebarSectionId) => {
-      setExpandedSections((prev) => {
-        const isOpen = prev.has(sectionId);
-        let next: Set<SidebarSectionId>;
-        if (isOpen) {
-          // Close this section
-          next = new Set(prev);
-          next.delete(sectionId);
-        } else {
-          // Accordion: keep only pinned sections + the new one
-          next = new Set<SidebarSectionId>();
-          for (const id of pinnedSections) {
-            next.add(id);
-          }
-          next.add(sectionId);
-        }
-        saveToStorage(EXPANDED_SECTIONS_KEY, [...next]);
-        return next;
-      });
+      setExpandedSections((prev) => toggleExpandedSection(prev, pinnedSections, sectionId));
     },
     [pinnedSections]
   );
@@ -324,7 +394,6 @@ export default function Sidebar({
           if (prevExp.has(sectionId)) return prevExp;
           const nextExp = new Set(prevExp);
           nextExp.add(sectionId);
-          saveToStorage(EXPANDED_SECTIONS_KEY, [...nextExp]);
           return nextExp;
         });
       }
@@ -428,6 +497,7 @@ export default function Sidebar({
       <Link
         key={item.href}
         href={item.href}
+        prefetch={false}
         onClick={onClose}
         className={className}
         {...sharedProps}
@@ -494,6 +564,7 @@ export default function Sidebar({
         <div className={cn("py-3", collapsed ? "px-2" : "px-4")}>
           <Link
             href="/home"
+            prefetch={false}
             className={cn("flex items-center", collapsed ? "justify-center" : "gap-2.5")}
           >
             <div className="flex items-center justify-center size-8 rounded bg-linear-to-br from-[#E54D5E] to-[#C93D4E] shrink-0">
@@ -518,16 +589,34 @@ export default function Sidebar({
           </Link>
         </div>
 
+        {!collapsed && (
+          <div className="px-4 pb-2">
+            <Input
+              type="search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={tc("search")}
+              aria-label={tc("search")}
+              icon="search"
+              className="gap-0"
+              inputClassName="py-1.5 text-xs"
+            />
+          </div>
+        )}
+
         <nav
-          aria-label="Main navigation"
+          aria-label={t("mainNavigation")}
           className={cn(
             "min-h-0 flex-1 overflow-y-auto py-1 custom-scrollbar",
             collapsed ? "px-2 space-y-0.5" : "px-3"
           )}
         >
-          {visibleSections.map((section, idx) => {
+          {isSearching && displaySections.length === 0 && (
+            <p className="px-2 py-3 text-xs text-text-muted/60">{tc("noResults")}</p>
+          )}
+          {displaySections.map((section, idx) => {
             const sectionId = section.id as SidebarSectionId;
-            const isExpanded = expandedSections.has(sectionId);
+            const isExpanded = isSearching || expandedSections.has(sectionId);
             const isPinned = pinnedSections.has(sectionId);
             const isFirst = idx === 0;
             const sectionItems = section.children.flatMap((child: any) =>

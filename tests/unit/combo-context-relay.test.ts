@@ -78,7 +78,7 @@ function buildQuotaResponse(usedPercent, resetAfterSeconds = 3600) {
 
 async function resetStorage() {
   core.resetDbInstance();
-  fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true });
+  fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   fs.mkdirSync(TEST_DATA_DIR, { recursive: true });
 }
 
@@ -116,7 +116,7 @@ test.after(async () => {
   clearSessions();
   globalThis.fetch = originalFetch;
   await resetStorage();
-  fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true });
+  fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 test("handleComboChat context-relay routes to the first available model", async () => {
@@ -156,14 +156,14 @@ test("handleComboChat context-relay skips unavailable models and falls through t
     combo: {
       name: "relay-skip-unavailable",
       strategy: "context-relay",
-      models: ["codex/gpt-5.4", "openai/gpt-4o-mini"],
+      models: ["codex/gpt-5.6-sol", "openai/gpt-4o-mini"],
       config: { maxRetries: 0 },
     },
     handleSingleModel: async (_body, modelStr) => {
       calls.push(modelStr);
       return okResponse();
     },
-    isModelAvailable: async (modelStr) => modelStr !== "codex/gpt-5.4",
+    isModelAvailable: async (modelStr) => modelStr !== "codex/gpt-5.6-sol",
     log: createLog(),
     settings: null,
     allCombos: null,
@@ -181,7 +181,7 @@ test("handleComboChat context-relay treats provider circuit breaker responses as
   const combo = {
     name: "relay-breaker",
     strategy: "context-relay",
-    models: ["codex/gpt-5.4", "openai/gpt-4o-mini"],
+    models: ["codex/gpt-5.6-sol", "openai/gpt-4o-mini"],
     config: { maxRetries: 0 },
   };
   const calls = [];
@@ -193,7 +193,7 @@ test("handleComboChat context-relay treats provider circuit breaker responses as
     combo,
     handleSingleModel: async (_body, modelStr) => {
       calls.push(modelStr);
-      if (modelStr === "codex/gpt-5.4") {
+      if (modelStr === "codex/gpt-5.6-sol") {
         return providerBreakerOpenResponse();
       }
       return okResponse();
@@ -205,7 +205,7 @@ test("handleComboChat context-relay treats provider circuit breaker responses as
   });
 
   assert.equal(result.ok, true);
-  assert.deepEqual(calls, ["codex/gpt-5.4", "openai/gpt-4o-mini"]);
+  assert.deepEqual(calls, ["codex/gpt-5.6-sol", "openai/gpt-4o-mini"]);
 });
 
 test("handleComboChat context-relay persists a handoff when codex quota reaches the warning threshold", async () => {
@@ -235,7 +235,7 @@ test("handleComboChat context-relay persists a handoff when codex quota reaches 
     combo: {
       name: "relay-generate",
       strategy: "context-relay",
-      models: ["codex/gpt-5.4"],
+      models: ["codex/gpt-5.6-sol"],
       config: { maxRetries: 0, handoffThreshold: 0.85, handoffProviders: ["codex"] },
     },
     handleSingleModel: async (body) => {
@@ -309,7 +309,7 @@ test("handleComboChat context-relay respects handoffProviders and skips generati
     combo: {
       name: "relay-disabled-provider",
       strategy: "context-relay",
-      models: ["codex/gpt-5.4"],
+      models: ["codex/gpt-5.6-sol"],
       config: { maxRetries: 0, handoffProviders: ["openai"] },
     },
     handleSingleModel: async (body) => {
@@ -363,7 +363,7 @@ test("handleComboChat context-relay treats explicit empty handoffProviders as di
     combo: {
       name: "relay-empty-providers",
       strategy: "context-relay",
-      models: ["codex/gpt-5.4"],
+      models: ["codex/gpt-5.6-sol"],
       config: { maxRetries: 0, handoffProviders: [] },
     },
     handleSingleModel: async () => okResponse(),
@@ -404,7 +404,14 @@ test("getLastSessionModel uses latest id as deterministic tie-breaker", async ()
   assert.equal(handoffDb.getLastSessionModel(sessionId, comboName), "anthropic/new");
 });
 
-test("handleComboChat universal handoff does not accumulate injected handoffs across fallback targets", async () => {
+test("handleComboChat universal handoff skips same-request fallback targets entirely", async () => {
+  // #12227 follow-up: a same-request fallback target (i > 0) serves the SAME
+  // client request the failed primary target would have served -- the client
+  // never saw the earlier target fail, so there's no genuine "handoff" to
+  // explain. Injecting one there replaces real conversation content with a
+  // context-free note; weaker fallback models have been observed fabricating
+  // content instead of just answering the actual request when handed that
+  // note. The fallback target must receive the original request untouched.
   const sessionId = "sess-universal-no-mutate";
   const comboName = "universal-no-mutate";
 
@@ -463,10 +470,8 @@ test("handleComboChat universal handoff does not accumulate injected handoffs ac
       typeof message?.content === "string" && message.content.includes("<context_handoff>")
   );
 
-  assert.equal(handoffMessages.length, 1);
-  assert.match(handoffMessages[0].content, /openai\/previous/);
-  assert.match(handoffMessages[0].content, /anthropic\/fallback/);
-  assert.doesNotMatch(handoffMessages[0].content, /openai\/failed/);
+  assert.equal(handoffMessages.length, 0);
+  assert.deepEqual(fallbackBody.messages, [{ role: "user", content: "Continue" }]);
 });
 
 test("handleComboChat universal handoff detects model switch before recording current model", async () => {

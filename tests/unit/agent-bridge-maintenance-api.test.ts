@@ -40,7 +40,11 @@ function stubFetch(handler: (call: FetchCall) => { ok: boolean; status?: number;
 }
 
 test("runDiagnose returns the report and hits GET /diagnose", async () => {
-  const report = { healthy: false, checks: [{ name: "cert-trusted", ok: false, hint: "trust it" }], port: 443 };
+  const report = {
+    healthy: false,
+    checks: [{ name: "cert-trusted", ok: false, hint: "trust it" }],
+    port: 443,
+  };
   const f = stubFetch(() => ({ ok: true, body: report }));
   try {
     const result = await runDiagnose();
@@ -72,6 +76,27 @@ test("repairMitmState POSTs /repair and returns the repaired list", async () => 
     assert.deepEqual(result.repaired, ["dns", "system-proxy"]);
     assert.equal(f.calls[0].url, "/api/tools/agent-bridge/repair");
     assert.equal(f.calls[0].init?.method, "POST");
+    assert.equal(f.calls[0].init?.body, JSON.stringify({}));
+  } finally {
+    f.restore();
+  }
+});
+
+test("repairMitmState forwards sudoPassword in the POST body", async () => {
+  const f = stubFetch(() => ({ ok: true, body: { ok: true, repaired: ["dns"] } }));
+  try {
+    await repairMitmState("hunter2");
+    assert.equal(f.calls[0].init?.body, JSON.stringify({ sudoPassword: "hunter2" }));
+  } finally {
+    f.restore();
+  }
+});
+
+test("removeCaCert forwards sudoPassword in the DELETE body", async () => {
+  const f = stubFetch(() => ({ ok: true, body: { ok: true, trusted: false } }));
+  try {
+    await removeCaCert("hunter2");
+    assert.equal(f.calls[0].init?.body, JSON.stringify({ sudoPassword: "hunter2" }));
   } finally {
     f.restore();
   }
@@ -91,8 +116,16 @@ test("fetchAgentBridgeConfig GETs /config and returns the portable blob", async 
 });
 
 test("importAgentBridgeConfig POSTs the config and returns the counts", async () => {
-  const cfg = { version: 1 as const, bypassPatterns: ["*.corp"], customHosts: [], agentMappings: {} };
-  const f = stubFetch(() => ({ ok: true, body: { ok: true, bypassPatterns: 1, customHosts: 0, agents: 0 } }));
+  const cfg = {
+    version: 1 as const,
+    bypassPatterns: ["*.corp"],
+    customHosts: [],
+    agentMappings: {},
+  };
+  const f = stubFetch(() => ({
+    ok: true,
+    body: { ok: true, bypassPatterns: 1, customHosts: 0, agents: 0 },
+  }));
   try {
     const result = await importAgentBridgeConfig(cfg);
     assert.equal(result.bypassPatterns, 1);
@@ -105,9 +138,22 @@ test("importAgentBridgeConfig POSTs the config and returns the counts", async ()
 });
 
 test("each helper surfaces the sanitized server error message on !res.ok", async () => {
-  const f = stubFetch(() => ({ ok: false, status: 400, body: { error: { message: "Invalid AgentBridge config" } } }));
+  const f = stubFetch(() => ({
+    ok: false,
+    status: 400,
+    body: { error: { message: "Invalid AgentBridge config" } },
+  }));
   try {
-    await assert.rejects(() => importAgentBridgeConfig({ version: 1, bypassPatterns: [], customHosts: [], agentMappings: {} }), /Invalid AgentBridge config/);
+    await assert.rejects(
+      () =>
+        importAgentBridgeConfig({
+          version: 1,
+          bypassPatterns: [],
+          customHosts: [],
+          agentMappings: {},
+        }),
+      /Invalid AgentBridge config/
+    );
   } finally {
     f.restore();
   }

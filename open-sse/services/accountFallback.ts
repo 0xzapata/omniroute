@@ -1,5 +1,6 @@
 import {
   BACKOFF_STEPS_MS,
+  EXECUTOR_CONTRACT_VIOLATION_CODE,
   PROVIDER_PROFILES,
   RateLimitReason,
   HTTP_STATUS,
@@ -11,9 +12,20 @@ import {
   findMatchingErrorRule,
   matchErrorRuleByText,
   matchErrorRuleByStatus,
+  serviceSupervisorCooldown,
+  isNimFunctionDegraded,
 } from "../config/errorConfig.ts";
-import { getProviderErrorRuleMatch } from "../config/providerErrorRules.ts";
-import { getPassthroughProviders, getProviderCategory } from "../config/providerRegistry.ts";
+import {
+  getProviderErrorRuleMatch,
+  resolveRuleMatchBody,
+  honorsRuleLockScope,
+} from "../config/providerErrorRules.ts";
+import * as rot from "./rotationConfig.ts";
+import {
+  getPassthroughProviders,
+  getProviderCategory,
+  isLocalProvider,
+} from "../config/providerRegistry.ts";
 import {
   DEFAULT_RESILIENCE_SETTINGS,
   resolveResilienceSettings,
@@ -28,14 +40,64 @@ import {
   looksLikeQuotaExhausted,
   type FailureKind,
 } from "../../src/shared/utils/classify429";
-import { resolveProviderId } from "../../src/shared/constants/providers";
+import { recordProviderSuccess as resetCooldownFailureCount } from "./providerCooldownTracker.ts";
+import {
+  getProviderById,
+  resolveProviderId,
+  isLocalProvider as isLocalProviderId,
+  isSelfHostedChatProvider,
+} from "../../src/shared/constants/providers";
 import { resolveUseUpstream429BreakerHints } from "../../src/shared/utils/providerHints";
 import { getCodexModelScope } from "../config/codexQuotaScopes.ts";
-import { getQuotaScopedModelForProvider } from "./antigravityQuotaFamily.ts";
-import { isRpdExhausted, isRpmExhausted } from "./geminiRateLimitTracker.ts";
+import { getQuotaScopedModelForProvider, isAntigravityQuotaProvider } from "./antigravityQuotaFamily.ts";
+import { persistAntigravityFamilyCooldownIfQuota } from "./antigravityFamilyCooldown.ts";
+import {
+  classifyGeminiQuotaMetricFromText,
+  isRpdExhausted,
+  isRpmExhausted,
+  isTpmExhausted,
+} from "./geminiRateLimitTracker.ts";
 import { setConnectionRateLimitUntil } from "@/lib/db/providers";
-import { parseRetryHintFromJsonBody } from "./retryAfterJson.ts";
+import {
+  parseRetryHintFromJsonBody,
+  parseDetailedRetryHintFromJsonBody,
+  parseDelayString,
+  MAX_SHORT_RETRY_HINT_MS,
+} from "./retryAfterJson.ts";
+import { isMoonshotAccountBalanceExhausted } from "./usage/moonshotOpenPlatform.ts";
+import { isTpdRateLimit, resolveTpdCooldownMs } from "./dailyQuotaReset.ts";
 
+// Pre-compiled regex constants for hot-path retry parsing (avoid per-call compilation)
+const RETRY_AFTER_RE = /retry\s+after\s+(\d+)\s*s/i;
+const PLEASE_RETRY_RE = /please retry in\s+([\d.]+\s*s)/i;
+const ISO_RETRY_RE = /\b(?:try again at|wait until|reset(?:s)? at|available at|retry after)\s+(\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)/i;
+const RESETS_AFTER_RE = /resets? after (\d+h)?(\d+m)?(\d+s)?/i;
+const WILL_RESET_AFTER_RE = /will reset after (\d+h)?(\d+m)?(\d+s)?/i;
+const RESETS_IN_RE = /resets? in (\d+h)?(\d+m)?(\d+s)?/i;
+const RETRY_IN_SEC_RE = /please retry in (\d+(?:\.\d+)?)\s*s/i;
+const COOLDOWN_NUMERIC_RE = /^\d+(\.\d+)?$/;
+
+export type RetryHintProvenance = "header" | "google_rpc_retry_info" | "body";
+
+export function retryHintBypassesMaxCooldownMs(
+  provenance: RetryHintProvenance | undefined
+): boolean {
+  return provenance === "header" || provenance === "google_rpc_retry_info";
+}
+
+import {
+  isSubscriptionQuotaText,
+  buildSubscriptionQuotaFallback,
+  buildWeeklyQuotaFallback,
+  buildSessionQuotaFallback,
+  SUBSCRIPTION_QUOTA_COOLDOWN_MS,
+} from "./quotaTextCooldowns.ts";
+import { parseDayGranularityResetMs, shouldPreserveQuotaSignals } from "./quotaResetParsing.ts";
+import { evictLockoutOverflow } from "./accountFallback/lockoutEviction.ts";
+export { MODEL_LOCKOUT_EVICTION_CAP } from "./accountFallback/lockoutEviction.ts";
+import { capScaledCooldownMs } from "./accountFallback/cooldownCap.ts";
+import { resolveApiKeyForbiddenFallback } from "./accountFallback/nonRetryableUpstream.ts";
+import * as exactModelLock from "./accountFallback/exactModelLock.ts";
 export type ProviderProfile = {
   baseCooldownMs: number;
   useUpstreamRetryHints: boolean;
@@ -60,7 +122,7 @@ export type ProviderProfile = {
 };
 type JsonRecord = Record<string, unknown>;
 type RateLimitReasonValue = (typeof RateLimitReason)[keyof typeof RateLimitReason];
-type ModelLockoutEntry = {
+export type ModelLockoutEntry = {
   reason: string;
   until: number;
   lockedAt: number;
@@ -68,7 +130,7 @@ type ModelLockoutEntry = {
   lastFailureAt: number;
   resetAfterMs: number;
 };
-type ModelFailureState = {
+export type ModelFailureState = {
   failureCount: number;
   lastFailureAt: number;
   resetAfterMs: number;
@@ -101,6 +163,15 @@ const PROVIDER_FAILURE_ERROR_CODES = new Set([408, 429, 500, 502, 503, 504]);
 const CONNECTION_FAILURE_DEDUP_MS = 5000;
 const MAX_CONNECTION_FAILURE_DEDUP_ENTRIES = 10_000;
 const lastConnectionFailure = new Map<string, number>();
+
+// Per-provider network-error dedup: several combo targets on the SAME provider can
+// fail the same single network event (a VPN blip) in the same request. Without this,
+// each target counts once and one transient blip opens the whole-provider breaker
+// while the provider is healthy. A genuinely dead proxy persists ACROSS requests
+// (past the window) and still accumulates to its threshold.
+const NETWORK_ERROR_DEDUP_MS = 10_000;
+const MAX_NETWORK_ERROR_DEDUP_ENTRIES = 1000;
+const lastNetworkErrorByProvider = new Map<string, number>();
 
 function pruneConnectionFailureDedupeEntries(): void {
   while (lastConnectionFailure.size > MAX_CONNECTION_FAILURE_DEDUP_ENTRIES) {
@@ -161,12 +232,26 @@ export const CREDITS_EXHAUSTED_SIGNALS = [
   "out of credits",
   "payment required",
   "free tier of the model has been exhausted",
+  // #8631: narrower than a bare "has been exhausted" — that generic phrase also
+  // appears in Gemini's transient RPM/TPM 429 body ("Resource has been exhausted
+  // (e.g. check quota)."), which must stay RATE_LIMIT_EXCEEDED, not terminal.
+  // Anchoring on "tier" keeps free-tier depletion wording matched while excluding
+  // Gemini's "resource has been exhausted" rate-limit phrasing.
+  "tier has been exhausted",
   // #5239: providers (e.g. DeepSeek/GLM-style) return "Insufficient account balance"
   // on a depleted key. 402 is already terminalized by status, but catch non-402
   // out-of-credit bodies here too.
   "insufficient balance",
   "insufficient_balance",
   "insufficient account balance",
+  "insufficient credit balance",
+  // Command Code returns 400 "You have insufficient credits to make this
+  // request. Please purchase more credits to continue using the service."
+  // when the account's billing credits run out. Without this signal the
+  // error stays unclassified (errorType=null), so the connection is never
+  // marked credits_exhausted and keeps being re-selected on every request.
+  "insufficient credits",
+  "insufficient credit",
 ];
 
 // T11: Signals that indicate OAuth token is invalid/expired (not permanent deactivation)
@@ -178,10 +263,66 @@ export const OAUTH_INVALID_TOKEN_SIGNALS = [
   "invalid credentials",
 ];
 
+// A model that upstream has permanently retired — Gemini's deprecated-model 404
+// ("This model models/gemini-2.5-flash is no longer available to new users...")
+// and Fireworks/OpenAI-compatible "end of life" 410s ("has reached its end of
+// life ... and is no longer available") — will 404/410 on EVERY future request;
+// no cooldown short enough to retry soon is ever correct. Without this check
+// these fall through to the generic "all other errors" branch at the bottom of
+// checkFallbackError, which only applies a short (seconds-to-minutes) transient
+// cooldown, so combo/auto-routing keeps re-selecting the dead model roughly
+// every cooldown window, forever — wasted upstream calls that, at volume, look
+// like abusive traffic to the provider (observed: a Gemini free-tier key
+// retried `gemini-2.5-flash`/`gemini-2.5-flash-lite` every ~15-45 minutes for a
+// full day). Matched independent of MODEL_ACCESS_DENIED_PATTERNS below because
+// those only fire for status 400; this needs to catch the far more common
+// 404/410 status a retired model actually returns.
+export const MODEL_PERMANENTLY_UNAVAILABLE_PATTERNS = [
+  /\bno longer available\b/i,
+  /\bno longer supported\b/i,
+  /\bhas reached (?:its |the )?end.?of.?life\b/i,
+  /\bmodel[\s\S]{0,40}?\b(?:deprecated|retired|discontinued|decommissioned)\b/i,
+  /\b(?:deprecated|retired|discontinued|decommissioned)[\s\S]{0,40}?\bmodel\b/i,
+];
+
+// A provider that has permanently retired its API base_url — the old endpoint
+// keeps returning 410/404 on EVERY future request until the connection's
+// base_url is updated by an operator; no cooldown short enough to retry soon
+// is ever correct. Without this check these fall through to the generic
+// "all other errors" branch, which only applies a short (seconds-to-minutes)
+// transient cooldown, so combo/auto-routing keeps re-selecting the dead
+// endpoint roughly every cooldown window, forever — wasted upstream calls
+// that, at volume, look like abusive traffic (observed: freeaiapikey's moved
+// endpoint retried every ~1 minute for a full day: "This API endpoint has
+// moved. Please update your base_url to https://api.freeaiapikey.com/v1 —
+// the old endpoint on freeaiapikey.com no longer works.").
+export const ENDPOINT_PERMANENTLY_MOVED_PATTERNS = [
+  /\bendpoint has moved\b/i,
+  /\bno longer works\b/i,
+  /\bupdate your base.?url\b/i,
+];
+
+// A billing/account suspension that requires manual operator action (unpaid
+// invoice, spending limit) — text varies per provider/account name, e.g.
+// Fireworks: "Account hummern is suspended, possibly due to reaching the
+// monthly spending limit or failure to pay past invoices." This does not
+// match ACCOUNT_DEACTIVATED_SIGNALS' fixed "your account has been suspended"
+// substring, and several providers surface it on a status (412) that
+// checkFallbackError does not otherwise classify — so it fell through to the
+// generic transient-error branch and got retried every few minutes, all day,
+// against an account that cannot succeed until billing is fixed.
+export const ACCOUNT_SUSPENDED_BILLING_PATTERNS = [
+  /\bsuspended\b[\s\S]{0,120}?\b(?:spending limit|billing|invoice|payment)\b/i,
+  /\b(?:spending limit|billing|invoice|payment)\b[\s\S]{0,120}?\bsuspended\b/i,
+];
+
 // Context overflow patterns — the prompt exceeds the model's maximum context length.
 // Different providers phrase this differently. Used to decide whether a 400 error
 // should trigger combo fallback (a different model may have a larger context window).
-const CONTEXT_OVERFLOW_PATTERNS = [
+// Exported so combo.ts's isContextOverflow400() guard (open-sse/services/combo.ts)
+// can reuse this single source of truth instead of maintaining its own,
+// independently-drifting pattern list (see issue #6637).
+export const CONTEXT_OVERFLOW_PATTERNS = [
   /\binput is too long\b/i,
   /\binput too long\b/i,
   /\bcontext.*(too long|exceeded|overflow|limit)/i,
@@ -218,10 +359,18 @@ const MODEL_ACCESS_AMBIGUOUS_TYPES = new Set([
 
 // Model access patterns — the account does not have access to the requested model
 // but a different account (e.g. PRO vs free tier) may support it.
-const MODEL_ACCESS_DENIED_PATTERNS = [
+// Exported so combo.ts #2101 can exempt model-scoped 400s from the body-specific
+// stop guard (#5249): "model not supported" must advance to the next combo target
+// even when the message also contains wrapper words like "invalid" / "bad request".
+export const MODEL_ACCESS_DENIED_PATTERNS = [
   /\binvalid model\b/i,
   /\bmodel.*not.*(?:available|found|supported|accessible)\b/i,
   /\bmodel.*(?:does not exist|doesn't exist)\b/i,
+  // "does not support" / "unsupported model" — GitHub Copilot / OpenAI-compatible
+  // often phrase model rejection this way without the "is not supported" word order.
+  /\bmodel\b[\s\S]{0,80}?\b(?:does\s+not\s+support|doesn't\s+support|unsupported)\b/i,
+  /\b(?:does\s+not\s+support|doesn't\s+support|unsupported)\b[\s\S]{0,80}?\bmodel\b/i,
+  /\bunsupported\s+model\b/i,
   /\baccess.*denied.*model\b/i,
   /\bmodel.*access.*denied\b/i,
   /\bplease select a different model\b/i,
@@ -239,7 +388,7 @@ const MODEL_ACCESS_DENIED_PATTERNS = [
 // across every target, masking the real "fix your credential" error. When the
 // text clearly indicates a bad credential, the regex-based model-access detection
 // is suppressed (structured codes/types like model_not_found are unaffected).
-const AUTH_CREDENTIAL_ERROR_PATTERNS = [
+export const AUTH_CREDENTIAL_ERROR_PATTERNS = [
   /\b(?:invalid|incorrect|expired|missing|revoked)\s+api[\s_-]?key\b/i,
   /\bapi[\s_-]?key\s+(?:is\s+)?(?:invalid|incorrect|expired|missing|revoked|not\s+valid)\b/i,
   /\bauthentication\s+(?:failed|error|required)\b/i,
@@ -247,6 +396,45 @@ const AUTH_CREDENTIAL_ERROR_PATTERNS = [
   /\bunauthorized\b/i,
   /\bnot\s+authenticated\b/i,
 ];
+
+// #10460: strict subset of MODEL_ACCESS_DENIED_PATTERNS that is unambiguously
+// PROVIDER-wide — the model does not exist / is not served by this provider at all, so
+// no account of that provider could serve it (e.g. "The requested model is not
+// supported", "model not found"). Deliberately EXCLUDES the "access"/"permission"
+// patterns from MODEL_ACCESS_DENIED_PATTERNS (e.g. "does not have permission to access
+// this model", "access denied ... model"): those commonly indicate an ACCOUNT-scoped
+// entitlement gap (e.g. PRO vs free tier) where a *different* account of the same
+// provider may still have access, so they must keep rotating through the normal
+// account-cooldown path — not be treated as provider-wide unsupported.
+const PROVIDER_MODEL_UNSUPPORTED_PATTERNS = [
+  /\binvalid model\b/i,
+  /\bmodel.*not.*(?:available|found|supported|accessible)\b/i,
+  /\bmodel.*(?:does not exist|doesn't exist)\b/i,
+  /\bmodel\b[\s\S]{0,80}?\b(?:does\s+not\s+support|doesn't\s+support|unsupported)\b/i,
+  /\b(?:does\s+not\s+support|doesn't\s+support|unsupported)\b[\s\S]{0,80}?\bmodel\b/i,
+  /\bunsupported\s+model\b/i,
+  /\bplease select a different model\b/i,
+];
+
+/**
+ * #10460: is this 400 an unambiguous, PROVIDER-wide "model not supported" response —
+ * i.e. would retrying a *different account* of the same provider also fail for the
+ * same reason? Reuses AUTH_CREDENTIAL_ERROR_PATTERNS (the same bad-credential
+ * exclusion `checkFallbackError`'s 400 branch applies) so a message like "invalid api
+ * key for model X" is never misclassified as model-wide. Also excludes the broader,
+ * ambiguous MODEL_ACCESS_DENIED_PATTERNS access/permission phrasing — those can be
+ * account-scoped entitlement gaps, not a provider-wide unsupported model — so account
+ * rotation for those keeps working normally via the regular cooldown path.
+ *
+ * Callers that want "should combo keep trying other targets" (not "should this
+ * specific account keep rotating") should use MODEL_ACCESS_DENIED_PATTERNS /
+ * isModelScoped400() instead — this helper is deliberately narrower.
+ */
+export function isProviderModelUnsupported400(status: number, errorText: string): boolean {
+  if (status !== HTTP_STATUS.BAD_REQUEST) return false;
+  if (AUTH_CREDENTIAL_ERROR_PATTERNS.some((p) => p.test(errorText))) return false;
+  return PROVIDER_MODEL_UNSUPPORTED_PATTERNS.some((p) => p.test(errorText));
+}
 
 // Malformed request patterns — the model rejected the message format but a different
 // provider/model in the combo may accept it.
@@ -265,8 +453,8 @@ const MALFORMED_REQUEST_PATTERNS = [
 // non-standard 400 status whose body carries rate-limit semantics instead of a 429
 // (#4976). When detected, the request is fallback-worthy at connection-cooldown scope
 // (NOT a whole-provider breaker) so combo routing can fail over to another free target.
-// Bounded, non-overlapping patterns only (ReDoS-safe — no nested quantifiers).
-const RATE_LIMIT_TEXT_PATTERNS = [
+// Exported: mimocode.ts's executor reuses this list directly (single source of truth).
+export const RATE_LIMIT_TEXT_PATTERNS = [
   /high.?frequency/i,
   /non-compliant/i,
   /too many requests/i,
@@ -298,6 +486,34 @@ export function isAccountDeactivated(errorText: string): boolean {
 export function isCreditsExhausted(errorText: string): boolean {
   const lower = String(errorText || "").toLowerCase();
   return CREDITS_EXHAUSTED_SIGNALS.some((sig) => lower.includes(sig));
+}
+
+/**
+ * Returns true if the response body indicates the requested model has been
+ * permanently retired by the provider (see MODEL_PERMANENTLY_UNAVAILABLE_PATTERNS).
+ */
+export function isModelPermanentlyUnavailable(errorText: string): boolean {
+  const text = String(errorText || "");
+  return MODEL_PERMANENTLY_UNAVAILABLE_PATTERNS.some((p) => p.test(text));
+}
+
+/**
+ * Returns true if response body indicates the provider's API endpoint/base_url
+ * has permanently moved (see ENDPOINT_PERMANENTLY_MOVED_PATTERNS).
+ */
+export function isEndpointPermanentlyMoved(errorText: string): boolean {
+  const text = String(errorText || "");
+  return ENDPOINT_PERMANENTLY_MOVED_PATTERNS.some((p) => p.test(text));
+}
+
+/**
+ * Returns true if response body indicates the account is suspended for a
+ * billing reason (unpaid invoice, spending limit) — see
+ * ACCOUNT_SUSPENDED_BILLING_PATTERNS.
+ */
+export function isAccountSuspendedForBilling(errorText: string): boolean {
+  const text = String(errorText || "");
+  return ACCOUNT_SUSPENDED_BILLING_PATTERNS.some((p) => p.test(text));
 }
 
 /**
@@ -364,11 +580,6 @@ export function getProviderProfile(provider: string): ProviderProfile {
   return buildProviderProfile(category);
 }
 
-function shouldPreserveQuotaSignalsFor429(provider: string | null | undefined): boolean {
-  if (!provider) return true;
-  return getProviderCategory(provider) === "oauth";
-}
-
 export async function getRuntimeProviderProfile(provider: string | null | undefined) {
   try {
     const { getCachedSettings } = await import("@/lib/db/readCache");
@@ -397,14 +608,79 @@ function getCanonicalLockProvider(provider: string): string {
   return canonical;
 }
 
-function getModelLockKey(provider: string, connectionId: string, model: string) {
+export function shouldDeferAntigravityQuotaStateToCaller(
+  provider: string,
+  hasCallerOwner: boolean
+): boolean {
+  const canonicalProvider = getCanonicalLockProvider(provider);
+  return hasCallerOwner && (canonicalProvider === "antigravity" || canonicalProvider === "agy");
+}
+
+export async function recordCoreOwnedAntigravityQuotaState({
+  provider,
+  connectionId,
+  model,
+  status,
+  errorText,
+  headers,
+  profileOverride = null,
+}: {
+  provider: string;
+  connectionId: string;
+  model: string;
+  status: number;
+  errorText: string;
+  headers: Headers | Record<string, string> | null;
+  profileOverride?: ProviderProfile | null;
+}) {
+  const profile = profileOverride ?? (await getRuntimeProviderProfile(provider));
+  const fallback = checkFallbackError(status, errorText, 0, model, provider, headers, profile);
+  const lockout = recordModelLockoutFailure(
+    provider,
+    connectionId,
+    model,
+    "quota_exhausted",
+    status,
+    fallback.baseCooldownMs ?? profile.baseCooldownMs ?? COOLDOWN_MS.rateLimit,
+    profile,
+    {
+      exactCooldownMs:
+        fallback.usedUpstreamRetryHint === true
+          ? fallback.cooldownMs
+          : (fallback.quotaResetHintMs ?? null),
+      maxCooldownMs: profile.maxCooldownMs,
+      scope: "exact",
+      exactCooldownIsUpstreamReset: retryHintBypassesMaxCooldownMs(fallback.retryHintSource),
+    }
+  );
+  if (lockout.cooldownMs > 0 && isProviderExhaustedReason(fallback)) {
+    persistAntigravityFamilyCooldownIfQuota({ provider, connectionId, model, cooldownMs: lockout.cooldownMs, reason: "quota_exhausted" });
+  }
+  return { cooldownMs: lockout.cooldownMs, failureCount: lockout.failureCount };
+}
+
+function getModelLockKey(
+  provider: string,
+  connectionId: string,
+  model: string,
+  reason?: string | null,
+  status?: number | null
+) {
   const canonicalProvider = getCanonicalLockProvider(provider);
   const lockModel =
-    canonicalProvider === "codex"
-      ? getCodexModelScope(model)
-      : getQuotaScopedModelForProvider(canonicalProvider, model) || model;
+    reason === "not_found" || status === 404
+      ? model
+      : canonicalProvider === "codex"
+        ? getCodexModelScope(model)
+        : getQuotaScopedModelForProvider(canonicalProvider, model) || model;
   return `${canonicalProvider}:${connectionId}:${lockModel}`;
 }
+
+const buildExactKey = exactModelLock.buildExactModelLockKey; // see exactModelLock.ts
+const getModelLockKeys = exactModelLock.createGetModelLockKeys(
+  getModelLockKey,
+  getCanonicalLockProvider
+);
 
 function getFailureWindowMs(profile: ProviderProfile | null = null, fallbackMs = 30 * 60 * 1000) {
   const configured = profile?.resetTimeoutMs;
@@ -460,6 +736,7 @@ function ensureCleanupTimer() {
       const now = Date.now();
       for (const key of modelLockouts.keys()) cleanupModelLockKey(key, now);
       for (const key of modelFailureState.keys()) cleanupModelLockKey(key, now);
+      evictModelLockoutOverflow();
     }, 15_000);
     if (typeof _cleanupTimer === "object" && "unref" in _cleanupTimer) {
       (_cleanupTimer as { unref?: () => void }).unref?.(); // Don't prevent process exit (Node.js only)
@@ -467,6 +744,14 @@ function ensureCleanupTimer() {
   } catch {
     // Cloudflare Workers may not support setInterval outside handlers — skip cleanup timer
   }
+}
+
+/** @internal exported for testing only (both accessors below). */
+export function evictModelLockoutOverflow(): void {
+  evictLockoutOverflow(modelLockouts, modelFailureState);
+}
+export function getModelLockoutSize(): number {
+  return modelLockouts.size;
 }
 
 /**
@@ -487,7 +772,7 @@ export function lockModel(
 ): void {
   if (!model) return; // No model → skip model-level locking
   ensureCleanupTimer();
-  const key = getModelLockKey(provider, connectionId, model);
+  const key = getModelLockKey(provider, connectionId, model, reason);
   cleanupModelLockKey(key);
   const newUntil = Date.now() + cooldownMs;
   // Preserve the longer cooldown if an existing lock has more time remaining.
@@ -514,16 +799,20 @@ export function lockModel(
   });
 }
 
+// Lock only this exact provider/account/model tuple, never a quota family — see exactModelLock.ts.
+export const lockExactModel = exactModelLock.createLockExactModel(
+  modelLockouts,
+  ensureCleanupTimer,
+  cleanupModelLockKey,
+  getCanonicalLockProvider
+);
+
 /**
  * Pick the `exactCooldownMs` to apply to a model lockout (#1308).
  *
- * When the upstream response carried an explicit reset longer than the base
- * cooldown — e.g. Antigravity "Resets in 160h", a `Retry-After` header, or a
- * parseable reset text already extracted by `checkFallbackError`/`parseRetryFromErrorText`
- * into `parsedCooldownMs` — honor it exactly so an exhausted model is not retried
- * again within minutes. Otherwise preserve the previous behavior: return `0` to let
- * `recordModelLockoutFailure` apply its exponential backoff, or the base cooldown when
- * backoff is disabled.
+ * Prefer a parsed reset longer than the base cooldown so a precise body hint
+ * still beats exponential backoff. Whether it may bypass maxCooldownMs is a
+ * separate provenance decision made by retryHintBypassesMaxCooldownMs.
  */
 export function selectLockoutCooldownMs(
   parsedCooldownMs: number,
@@ -543,10 +832,26 @@ export function recordModelLockoutFailure(
   status: number,
   fallbackCooldownMs: number,
   profile: ProviderProfile | null = null,
-  options: { exactCooldownMs?: number | null; maxCooldownMs?: number } = {}
+  options: {
+    exactCooldownMs?: number | null;
+    maxCooldownMs?: number;
+    scope?: "exact" | "quota_family";
+    /**
+     * #6863 vs #7940: set true only when `exactCooldownMs` came from an actual
+     * authoritative upstream signal: Retry-After/X-RateLimit-Reset headers or
+     * google.rpc.RetryInfo. Generic JSON and prose-derived reset text are useful
+     * exact hints but remain bounded by maxCooldownMs. Leave false/omitted for
+     * those body hints and for synthetic estimates (the quota_exhausted
+     * until-midnight default below, plain exponential backoff).
+     */
+    exactCooldownIsUpstreamReset?: boolean;
+  } = {}
 ) {
   ensureCleanupTimer();
-  const key = getModelLockKey(provider, connectionId, model);
+  const key =
+    options.scope === "exact"
+      ? buildExactKey(getCanonicalLockProvider(provider), connectionId, model)
+      : getModelLockKey(provider, connectionId, model, reason, status);
   const now = Date.now();
   cleanupModelLockKey(key, now);
 
@@ -566,22 +871,27 @@ export function recordModelLockoutFailure(
   const failureCount = withinWindow ? previous.failureCount + 1 : 1;
 
   const baseCooldownMs = getModelLockBaseCooldown(status, fallbackCooldownMs, profile);
-  // Cap exponential backoff so repeated failures cannot produce absurdly long
-  // lockouts; exact cooldowns (e.g. daily-quota until-midnight) are not capped.
+  // Cap both exponential backoff and computed exact cooldowns (e.g. daily-quota
+  // until-midnight, #7940/#7980) against maxCooldownMs so user-configured caps are
+  // honored — EXCEPT an authoritative parsed upstream reset (#6863, e.g. Antigravity
+  // "Resets in 92h27m28s"), which the upstream told us to wait and must be honored
+  // exactly, never clamped down to maxCooldownMs.
   const maxCooldownMs =
     typeof options.maxCooldownMs === "number" && options.maxCooldownMs > 0
       ? options.maxCooldownMs
-      : BACKOFF_CONFIG.max;
+      : null;
   const cooldownMs =
     typeof options.exactCooldownMs === "number" && options.exactCooldownMs > 0
-      ? options.exactCooldownMs
+      ? maxCooldownMs !== null && !options.exactCooldownIsUpstreamReset
+        ? Math.min(options.exactCooldownMs, maxCooldownMs)
+        : options.exactCooldownMs
       : Math.min(
           getScaledCooldown(
             baseCooldownMs,
             failureCount,
             profile?.maxBackoffSteps ?? BACKOFF_CONFIG.maxLevel
           ),
-          maxCooldownMs
+          maxCooldownMs ?? BACKOFF_CONFIG.max
         );
 
   modelFailureState.set(key, {
@@ -591,7 +901,8 @@ export function recordModelLockoutFailure(
     lastCooldownMs: cooldownMs,
   });
 
-  lockModel(provider, connectionId, model, reason, cooldownMs, {
+  const lockFn = options.scope === "exact" ? lockExactModel : lockModel;
+  lockFn(provider, connectionId, model, reason, cooldownMs, {
     failureCount,
     lastFailureAt: now,
     resetAfterMs,
@@ -610,10 +921,11 @@ export function clearModelLock(
   model: string | null | undefined
 ): boolean {
   if (!model) return false;
-  const key = getModelLockKey(provider, connectionId, model);
-  const hadLock = modelLockouts.delete(key);
-  const hadFailureState = modelFailureState.delete(key);
-  return hadLock || hadFailureState;
+  return exactModelLock.clearMultiKeyLock(
+    modelLockouts,
+    modelFailureState,
+    getModelLockKeys(provider, connectionId, model)
+  );
 }
 
 /**
@@ -637,10 +949,20 @@ export function hasPerModelQuota(
     return connectionPassthroughModels;
   }
   if (!provider) return false;
-  if (getCanonicalLockProvider(provider) === "codex") return true;
-  if (provider === "gemini" || provider === "github") return true;
-  if (getPassthroughProviders().has(provider)) return true;
-  if (isCompatibleProvider(provider)) return true;
+  const canonicalId = resolveProviderId(provider);
+  if (getCanonicalLockProvider(canonicalId) === "antigravity") return true;
+  if (getCanonicalLockProvider(canonicalId) === "codex") return true;
+  if (canonicalId === "gemini" || canonicalId === "github") return true;
+  if (canonicalId === "antigravity" || canonicalId === "agy") return true;
+  if (getPassthroughProviders().has(canonicalId)) return true;
+  // #11071: getPassthroughProviders() reads the open-sse REGISTRY. A provider can declare
+  // passthroughModels:true in the SHARED registry (src/shared/constants/providers/) and be
+  // absent from that set — 40 of them are, and they are neither local nor self-hosted, so the
+  // branch below never reaches them either. Without this lookup a missing-model 404 on one of
+  // those cools the whole connection instead of locking out the single model.
+  if (getProviderById(canonicalId)?.passthroughModels === true) return true;
+  if (isCompatibleProvider(canonicalId)) return true;
+  if (isLocalProviderId(canonicalId) || isSelfHostedChatProvider(canonicalId)) return true;
   return false;
 }
 
@@ -660,7 +982,8 @@ export function lockModelIfPerModelQuota(
   // Skip model-level lock if the entire provider is in circuit-breaker cooldown.
   // The provider cooldown already prevents all requests, so a model lock is redundant.
   if (isProviderInCooldown(provider)) return false;
-  lockModel(provider, connectionId, model, reason, cooldownMs);
+  const lockFn = getCanonicalLockProvider(provider) === "antigravity" ? lockExactModel : lockModel;
+  lockFn(provider, connectionId, model, reason, cooldownMs);
   return true;
 }
 
@@ -676,7 +999,7 @@ export function shouldMarkAccountExhaustedFrom429(
   // without making this one look quota-depleted for 5 minutes.
   if (failureKind === "rate_limit" || failureKind === "transient") return false;
   return (
-    shouldPreserveQuotaSignalsFor429(provider) &&
+    shouldPreserveQuotaSignals(provider) &&
     !hasPerModelQuota(provider, model, connectionPassthroughModels)
   );
 }
@@ -729,10 +1052,11 @@ export function isModelLocked(
   model: string | null | undefined
 ): boolean {
   if (!model) return false;
-  const key = getModelLockKey(provider, connectionId, model);
-  cleanupModelLockKey(key);
-  const entry = modelLockouts.get(key);
-  return Boolean(entry);
+  return exactModelLock.isAnyKeyLocked(
+    modelLockouts,
+    cleanupModelLockKey,
+    getModelLockKeys(provider, connectionId, model)
+  );
 }
 
 /**
@@ -744,9 +1068,11 @@ export function getModelLockoutInfo(
   model: string | null | undefined
 ) {
   if (!model) return null;
-  const key = getModelLockKey(provider, connectionId, model);
-  cleanupModelLockKey(key);
-  const entry = modelLockouts.get(key);
+  const entry = exactModelLock.findLatestLockEntry(
+    modelLockouts,
+    cleanupModelLockKey,
+    getModelLockKeys(provider, connectionId, model)
+  );
   if (!entry) return null;
   return {
     reason: entry.reason,
@@ -875,9 +1201,30 @@ export function recordProviderFailure(
   provider: string | null | undefined,
   log?: { warn?: (...args: unknown[]) => void },
   connectionId?: string | null,
-  profile?: ProviderBreakerProfile | null
+  profile?: ProviderBreakerProfile | null,
+  opts?: { isQueueTimeout?: boolean; isNetworkError?: boolean }
 ): void {
   if (!provider) return;
+  // OmniRoute's own rate-limit queue timeout is backpressure we applied, not a
+  // provider failure — the provider never saw the request, so it must not count
+  // toward the provider breaker.
+  if (opts?.isQueueTimeout) return;
+
+  // Network-layer errors (proxy_unreachable) get a separate SAME-PROVIDER dedup, so a
+  // single transient network event is not counted once per combo target (see the
+  // declaration). A dead proxy persists across requests and still accumulates.
+  if (opts?.isNetworkError) {
+    const now = Date.now();
+    const last = lastNetworkErrorByProvider.get(provider);
+    if (last && now - last < NETWORK_ERROR_DEDUP_MS) return;
+    lastNetworkErrorByProvider.delete(provider);
+    lastNetworkErrorByProvider.set(provider, now);
+    while (lastNetworkErrorByProvider.size > MAX_NETWORK_ERROR_DEDUP_ENTRIES) {
+      const oldestKey = lastNetworkErrorByProvider.keys().next().value;
+      if (typeof oldestKey !== "string") break;
+      lastNetworkErrorByProvider.delete(oldestKey);
+    }
+  }
 
   // Deduplicate rapid-fire failures from the same connection
   if (connectionId) {
@@ -902,6 +1249,47 @@ export function recordProviderFailure(
   if (!breaker.canExecute()) {
     log?.warn?.(`[ProviderFailure] ${provider}: circuit breaker opened after repeated failures`);
   }
+}
+
+/**
+ * Record a successful request for a provider.
+ * Symmetric counterpart of recordProviderFailure:
+ * - Resets cooldown failureCount (exponential backoff) for all non-OPEN states.
+ * - HALF_OPEN -> CLOSED (probe success), CLOSED/DEGRADED -> decay failureCount.
+ *
+ * When the breaker is OPEN (provider is failing), this is a no-op -- the
+ * cooldown stays intact and the breaker keeps its cooldown period.
+ *
+ * Matches execute()'s behavior: _onSuccess() is called for all non-OPEN states.
+ */
+export function recordProviderSuccess(
+  provider: string | null | undefined,
+  connectionId?: string | null
+): void {
+  if (!provider || provider === "unknown") return;
+
+  const breaker = getProviderBreaker(provider);
+  if (!breaker) return;
+  const breakerState = breaker.getStatus().state;
+
+  // When breaker is OPEN, the provider is failing -- do not reset cooldown
+  // even if one request slipped through (dispatched before the open).
+  // The cooldown resets when the breaker reaches HALF_OPEN and the probe
+  // succeeds below.
+  if (breakerState === "OPEN") return;
+
+  // Reset cooldown failureCount (exponential backoff) -- symmetric with
+  // recordProviderCooldown which increments it on each failure.
+  resetCooldownFailureCount(provider, connectionId ?? undefined);
+
+  // Clear failure-dedup window so the next genuine failure is not suppressed.
+  if (connectionId) {
+    lastConnectionFailure.delete(`${provider}:${connectionId}`);
+  }
+
+  // Transition breaker on success, matching execute()'s behavior:
+  // HALF_OPEN -> CLOSED (probe success), CLOSED/DEGRADED -> decay failureCount.
+  breaker._onSuccess();
 }
 
 /**
@@ -999,7 +1387,7 @@ export function parseRetryAfterFromBody(responseBody: unknown): {
 
   // OpenAI: "Please retry after 20s" in message
   const msg = String(error.message || body.message || "");
-  const retryMatch = /retry\s+after\s+(\d+)\s*s/i.exec(msg);
+  const retryMatch = RETRY_AFTER_RE.exec(msg);
   if (retryMatch) {
     return {
       retryAfterMs: Number.parseInt(retryMatch[1], 10) * 1000,
@@ -1018,24 +1406,8 @@ export function parseRetryAfterFromBody(responseBody: unknown): {
   return { retryAfterMs: null, reason };
 }
 
-/**
- * Parse delay strings like "33s", "2m", "1h", "1500ms"
- */
-function parseDelayString(value: unknown): number | null {
-  if (!value) return null;
-  const str = String(value).trim();
-  const msMatch = /^(\d+)\s*ms$/i.exec(str);
-  if (msMatch) return Number.parseInt(msMatch[1], 10);
-  const secMatch = /^(\d+)\s*s$/i.exec(str);
-  if (secMatch) return Number.parseInt(secMatch[1], 10) * 1000;
-  const minMatch = /^(\d+)\s*m$/i.exec(str);
-  if (minMatch) return Number.parseInt(minMatch[1], 10) * 60 * 1000;
-  const hrMatch = /^(\d+)\s*h$/i.exec(str);
-  if (hrMatch) return Number.parseInt(hrMatch[1], 10) * 3600 * 1000;
-  // Bare number → seconds
-  const num = Number.parseInt(str, 10);
-  return Number.isNaN(num) ? null : num * 1000;
-}
+// parseDelayString now lives in ./retryAfterJson.ts (shared with parseRetryHintFromJsonBody's
+// Gemini RetryInfo.retryDelay parsing, #7940) — see the import at the top of this file.
 
 // T07: parse retry time from error text body with combined "XhYmZs" format.
 export function parseRetryFromErrorText(errorText: unknown): number | null {
@@ -1045,11 +1417,16 @@ export function parseRetryFromErrorText(errorText: unknown): number | null {
   const bodyHintMs = parseRetryHintFromJsonBody(msg, MAX_PROVIDER_COOLDOWN_MS);
   if (bodyHintMs !== null) return bodyHintMs;
 
+  // Gemini free-tier text fallback (no parseable JSON details present):
+  // "Please retry in 26.660853464s." Short throttle hint — capped independently of
+  // MAX_PROVIDER_COOLDOWN_MS, mirroring the JSON RetryInfo.retryDelay cap (#7940).
+  const pleaseRetryMs = parseDelayString(PLEASE_RETRY_RE.exec(msg)?.[1]);
+  if (pleaseRetryMs !== null && pleaseRetryMs > 0) {
+    return Math.min(pleaseRetryMs, MAX_SHORT_RETRY_HINT_MS);
+  }
+
   // Issue #2321: parse embedded absolute ISO retry timestamps.
-  const isoMatch =
-    /\b(?:try again at|wait until|reset(?:s)? at|available at|retry after)\s+(\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)/i.exec(
-      msg
-    );
+  const isoMatch = ISO_RETRY_RE.exec(msg);
   if (isoMatch) {
     const parsedTs = Date.parse(isoMatch[1]);
     if (Number.isFinite(parsedTs)) {
@@ -1058,20 +1435,29 @@ export function parseRetryFromErrorText(errorText: unknown): number | null {
     }
   }
 
-  const match = /reset after (\d+h)?(\d+m)?(\d+s)?/i.exec(msg);
+  const match = RESETS_AFTER_RE.exec(msg);
   if (match?.[1] || match?.[2] || match?.[3]) return computeDurationMs(match);
 
   // Variant without "reset after": "will reset after XhYmZs"
-  const altMatch = /will reset after (\d+h)?(\d+m)?(\d+s)?/i.exec(msg);
+  const altMatch = WILL_RESET_AFTER_RE.exec(msg);
   if (altMatch?.[1] || altMatch?.[2] || altMatch?.[3]) return computeDurationMs(altMatch);
 
   // Antigravity / Cloud Code phrasing: "Resets in 164h27m24s".
-  const resetsInMatch = /resets? in (\d+h)?(\d+m)?(\d+s)?/i.exec(msg);
+  const resetsInMatch = RESETS_IN_RE.exec(msg);
   if (resetsInMatch?.[1] || resetsInMatch?.[2] || resetsInMatch?.[3]) {
     return computeDurationMs(resetsInMatch);
   }
 
-  return null;
+  // Gemini phrasing: "Please retry in 54.472178091s" (fractional seconds).
+  const retryInSecMatch = RETRY_IN_SEC_RE.exec(msg);
+  if (retryInSecMatch?.[1]) {
+    const sec = Number.parseFloat(retryInSecMatch[1]);
+    if (Number.isFinite(sec) && sec > 0) {
+      return Math.min(Math.round(sec * 1000), MAX_PROVIDER_COOLDOWN_MS);
+    }
+  }
+
+  return parseDayGranularityResetMs(msg, MAX_PROVIDER_COOLDOWN_MS);
 }
 
 /**
@@ -1086,16 +1472,6 @@ function computeDurationMs(match: RegExpMatchArray): number | null {
   if (match[2]) totalMs += Number.parseInt(match[2], 10) * 60 * 1000; // minutes
   if (match[3]) totalMs += Number.parseInt(match[3], 10) * 1000; // seconds
   return totalMs > 0 ? Math.min(totalMs, MAX_PROVIDER_COOLDOWN_MS) : null;
-}
-
-function isSubscriptionQuotaText(lower: string): boolean {
-  return (
-    lower.includes("usage limit reached") ||
-    lower.includes("usage limit has been") ||
-    lower.includes("claude pro usage limit") ||
-    lower.includes("you've reached your usage limit") ||
-    lower.includes("you have reached your usage limit")
-  );
 }
 
 // ─── Error Classification ───────────────────────────────────────────────────
@@ -1186,7 +1562,7 @@ export function classifyError(
   if (status === HTTP_STATUS.UNAUTHORIZED || status === HTTP_STATUS.FORBIDDEN) {
     return RateLimitReason.AUTH_ERROR;
   }
-  if (status === HTTP_STATUS.PAYMENT_REQUIRED) {
+  if (status === HTTP_STATUS.PAYMENT_REQUIRED || status === HTTP_STATUS.PLAN_LIMIT_EXCEEDED) {
     return RateLimitReason.QUOTA_EXHAUSTED;
   }
   if (status === HTTP_STATUS.RATE_LIMITED) {
@@ -1231,7 +1607,8 @@ export function isDailyQuotaExhausted(errorText: string): boolean {
   return (
     lower.includes("today's quota") ||
     lower.includes("daily quota") ||
-    lower.includes("try again tomorrow")
+    lower.includes("try again tomorrow") ||
+    lower.includes("tpd rate limit")
   );
 }
 
@@ -1276,13 +1653,20 @@ export function checkFallbackError(
   provider: string | null = null,
   headers: Headers | Record<string, string> | null = null,
   profileOverride: ProviderProfile | null = null,
-  structuredError?: { code?: string | null; type?: string | null } | null
+  structuredError?: { code?: string | null; type?: string | null } | null,
+  rotation?: { account?: unknown } | null,
+  dailyReset?: {
+    timezone?: unknown;
+    hour?: unknown;
+    nowMs?: number;
+  } | null,
 ): {
   shouldFallback: boolean;
   cooldownMs: number;
   baseCooldownMs?: number;
   newBackoffLevel?: number;
   usedUpstreamRetryHint?: boolean;
+  retryHintSource?: RetryHintProvenance;
   reason?: string;
   permanent?: boolean;
   creditsExhausted?: boolean;
@@ -1295,28 +1679,43 @@ export function checkFallbackError(
   /** #6061: the provider-configured cooldown (ms) before backoff scaling, surfaced so the
    * caller can persist an explicit reset window instead of the engine's scaled cooldown. */
   configuredCooldownMs?: number;
+  /** #10334 — the matched ProviderErrorRule's declared lock scope, surfaced so the
+   * persistence layer can honor it instead of re-deriving scope from
+   * hasPerModelQuota(). Populated ONLY when honorsRuleLockScope(provider) is true;
+   * always undefined for every other provider, so existing consumers are unaffected. */
+  ruleScope?: "model" | "provider" | "connection";
 } {
-  // G-02: detect embedded service supervisor failures (X-Omni-Fallback-Hint: connection_cooldown).
-  // These are NOT upstream AI provider failures — they are local supervisor state changes.
-  // Apply a short 5s connection cooldown without tripping the provider circuit breaker.
-  if (status === 503 && headers) {
-    const hintValue =
-      typeof (headers as Headers).get === "function"
-        ? (headers as Headers).get("x-omni-fallback-hint")
-        : (headers as Record<string, string>)["x-omni-fallback-hint"] ||
-          (headers as Record<string, string>)["X-Omni-Fallback-Hint"];
-    if (typeof hintValue === "string" && hintValue.toLowerCase() === "connection_cooldown") {
-      return {
-        shouldFallback: true,
-        cooldownMs: 5_000,
-        baseCooldownMs: 5_000,
-        newBackoffLevel: 0,
-        reason: "service_not_running",
-        skipProviderBreaker: true,
-      };
-    }
+  // #10360: an executor-result contract violation is OUR bug, not the provider's.
+  // Retrying reproduces it verbatim, and cooling the connection down (or tripping
+  // the provider breaker) punishes a healthy account for an internal defect. Must
+  // run before every other classification — the surfaced status is a plain 500,
+  // which the retryable set below would otherwise treat as a transient upstream
+  // failure and hand a backoff cooldown.
+  if (structuredError?.code === EXECUTOR_CONTRACT_VIOLATION_CODE) {
+    return {
+      shouldFallback: false,
+      cooldownMs: 0,
+      reason: EXECUTOR_CONTRACT_VIOLATION_CODE,
+      skipProviderBreaker: true,
+    };
   }
 
+  const previousResponseBindingMiss =
+    structuredError?.code === "invalid_previous_response_binding" ||
+    (status === 409 && /previous_response_id does not belong/i.test(String(errorText || "")));
+  if (previousResponseBindingMiss) {
+    return {
+      shouldFallback: false,
+      cooldownMs: 0,
+      reason: "invalid_previous_response_binding",
+      skipProviderBreaker: true,
+    };
+  }
+
+  const svc = serviceSupervisorCooldown(status, headers);
+  if (svc) return svc;
+  const rg = rot.gateFor(status, rotation?.account);
+  if (rg) return rg;
   const errorStr = (errorText || "").toString();
   const profile = profileOverride ?? (provider ? getProviderProfile(provider) : null);
   const maxBackoffSteps = profile?.maxBackoffSteps ?? BACKOFF_CONFIG.maxLevel;
@@ -1363,20 +1762,34 @@ export function checkFallbackError(
     return null;
   }
 
-  function getUpstreamRetryHintMs() {
-    if (!profile?.useUpstreamRetryHints) return null;
+  function detectRetryHint(): {
+    retryAfterMs: number;
+    provenance: RetryHintProvenance;
+  } | null {
     const resetTime = parseResetFromHeaders(headers);
     if (resetTime) {
       const waitMs = Math.max(resetTime - Date.now(), 0);
-      if (waitMs > 0) return waitMs;
+      if (waitMs > 0) return { retryAfterMs: waitMs, provenance: "header" };
+    }
+
+    const detailedJsonHint = parseDetailedRetryHintFromJsonBody(errorStr, MAX_PROVIDER_COOLDOWN_MS);
+    if (detailedJsonHint) {
+      return {
+        retryAfterMs: detailedJsonHint.retryAfterMs,
+        provenance: detailedJsonHint.provenance,
+      };
     }
 
     const retryFromErrorText = parseRetryFromErrorText(errorStr);
     if (retryFromErrorText && retryFromErrorText > 0) {
-      return retryFromErrorText;
+      return { retryAfterMs: retryFromErrorText, provenance: "body" };
     }
 
     return null;
+  }
+
+  function getUpstreamRetryHint() {
+    return profile?.useUpstreamRetryHints ? detectRetryHint() : null;
   }
 
   function getScaledBaseCooldown(reason: RateLimitReasonValue, level = backoffLevel) {
@@ -1385,26 +1798,34 @@ export function checkFallbackError(
       typeof profile?.baseCooldownMs === "number" && profile.baseCooldownMs >= 0
         ? profile.baseCooldownMs
         : COOLDOWN_MS.transientInitial;
+    // #8396: cap against profile.maxCooldownMs, mirroring the model-lockout path.
     return {
       baseCooldownMs,
-      cooldownMs: getScaledCooldown(baseCooldownMs, level + 1, maxBackoffSteps),
+      cooldownMs: capScaledCooldownMs(
+        getScaledCooldown(baseCooldownMs, level + 1, maxBackoffSteps),
+        profile?.maxCooldownMs,
+        BACKOFF_CONFIG.max
+      ),
       newBackoffLevel: Math.min(level + 1, maxBackoffSteps),
     };
   }
 
   function buildRetryableFallback(reason: RateLimitReasonValue) {
-    const upstreamRetryHintMs = getUpstreamRetryHintMs();
-    if (typeof upstreamRetryHintMs === "number" && upstreamRetryHintMs > 0) {
+    const upstreamRetryHint = getUpstreamRetryHint();
+    if (upstreamRetryHint && upstreamRetryHint.retryAfterMs > 0) {
       return {
         shouldFallback: true,
-        cooldownMs: upstreamRetryHintMs,
-        baseCooldownMs: upstreamRetryHintMs,
+        cooldownMs: upstreamRetryHint.retryAfterMs,
+        baseCooldownMs: upstreamRetryHint.retryAfterMs,
         newBackoffLevel: 0,
         usedUpstreamRetryHint: true,
+        retryHintSource: upstreamRetryHint.provenance,
         reason,
       };
     }
 
+    const ro = rot.overrideFor(reason, rotation?.account);
+    if (ro) return ro;
     const scaled = getScaledBaseCooldown(reason, backoffLevel);
     return {
       shouldFallback: true,
@@ -1417,7 +1838,7 @@ export function checkFallbackError(
   }
 
   const isRateLimitStatus = status === HTTP_STATUS.RATE_LIMITED;
-  const preserveQuota429 = shouldPreserveQuotaSignalsFor429(provider);
+  const preserveQuota429 = shouldPreserveQuotaSignals(provider, errorText);
   const shouldUseQuotaSignal = !isRateLimitStatus || preserveQuota429;
 
   // Check error message FIRST - specific patterns take priority over status codes
@@ -1432,8 +1853,48 @@ export function checkFallbackError(
       };
     }
 
-    // T10 (sub2api #1169): Credits/quota exhausted — long cooldown, distinct from rate limit
-    if (shouldUseQuotaSignal && isCreditsExhausted(errorStr)) {
+    // A retired model (Gemini deprecated-model 404, Fireworks/etc. end-of-life 410)
+    // will fail identically on every future request — lock it for a long, fixed
+    // window instead of falling through to the generic transient-error branch's
+    // short backoff, which would otherwise keep re-selecting a permanently dead
+    // model roughly every cooldown window, all day, hammering the provider with
+    // guaranteed-to-fail requests (see MODEL_PERMANENTLY_UNAVAILABLE_PATTERNS).
+    // `quotaResetHintMs` flows into combo.ts's per-request model-lockout as an
+    // upstream-verified reset, so it is honored in full and not clamped to the
+    // normal ~20min model-lockout ceiling.
+    if (
+      (status === HTTP_STATUS.NOT_FOUND || status === HTTP_STATUS.GONE) &&
+      isModelPermanentlyUnavailable(errorStr)
+    ) {
+      const cooldownMs = 24 * 60 * 60 * 1000; // 24h
+      return {
+        shouldFallback: true,
+        cooldownMs,
+        reason: "not_found",
+        quotaResetHintMs: cooldownMs,
+      };
+    }
+
+    // The provider's API endpoint/base_url has permanently moved — every future
+    // request against the stale base_url fails identically, so lock it for a
+    // long, fixed window instead of the generic transient-error branch's short
+    // backoff (see ENDPOINT_PERMANENTLY_MOVED_PATTERNS).
+    if (isEndpointPermanentlyMoved(errorStr)) {
+      const cooldownMs = 24 * 60 * 60 * 1000; // 24h
+      return {
+        shouldFallback: true,
+        cooldownMs,
+        reason: "not_found",
+        quotaResetHintMs: cooldownMs,
+      };
+    }
+
+    // The account is suspended for a billing reason (unpaid invoice, spending
+    // limit) that varies per provider/account name and can arrive on a status
+    // checkFallbackError does not otherwise classify (e.g. Fireworks 412) —
+    // treat it like a credits-exhausted account so it stops being retried
+    // every few minutes until billing is fixed (see ACCOUNT_SUSPENDED_BILLING_PATTERNS).
+    if (isAccountSuspendedForBilling(errorStr)) {
       return {
         shouldFallback: true,
         cooldownMs: COOLDOWN_MS.paymentRequired ?? 3600 * 1000, // 1h cooldown
@@ -1442,52 +1903,131 @@ export function checkFallbackError(
       };
     }
 
-    // Daily quota exhausted — lock model until tomorrow
-    if (shouldUseQuotaSignal && isDailyQuotaExhausted(errorStr)) {
-      const msUntilTomorrow = getMsUntilTomorrow();
-      // Cap at 24 hours to handle timezone edge cases
-      const cooldownMs = Math.min(msUntilTomorrow, 24 * 60 * 60 * 1000);
-      return {
-        shouldFallback: true,
-        cooldownMs,
-        reason: RateLimitReason.QUOTA_EXHAUSTED,
-        dailyQuotaExhausted: true,
-      };
+    // Gemini-specific check — MUST run before isCreditsExhausted/
+    // isDailyQuotaExhausted/the generic text classifier below: Gemini's free-
+    // tier 429 boilerplate literally says "You exceeded your current quota,
+    // please check your plan and billing details" for EVERY limit type
+    // (RPM/TPM/RPD alike), which collides with CREDITS_EXHAUSTED_SIGNALS'
+    // `"exceeded your current quota"` entry (added for OpenAI-style terminal
+    // billing errors) — that generic check would otherwise short-circuit
+    // straight to QUOTA_EXHAUSTED before this Gemini-specific block ever runs
+    // (#7360). Gated on provider === "gemini" so it cannot affect any other
+    // provider's genuine credits-exhausted classification.
+    //
+    // Preference order:
+    //  1. The upstream error text's own metric name (authoritative — it is
+    //     Google's own signal, e.g. "...free_tier_input_token_count..." = TPM).
+    //     Required because the local per-model counters below only increment
+    //     on a SUCCESSFUL response; a request that gets rejected — especially
+    //     the first of several concurrent requests racing to trip the same
+    //     per-minute limit — never contributes to the counter, so it can read
+    //     0 at the exact moment it needs to report exhaustion.
+    //  2. Local per-model counters, when the text names no metric.
+    if (provider === "gemini" && status === HTTP_STATUS.RATE_LIMITED && _model) {
+      const metricClass = classifyGeminiQuotaMetricFromText(errorStr);
+      if (metricClass === "rpd") {
+        return buildRetryableFallback(RateLimitReason.QUOTA_EXHAUSTED);
+      }
+      if (metricClass === "rpm" || metricClass === "tpm") {
+        return buildRetryableFallback(RateLimitReason.RATE_LIMIT_EXCEEDED);
+      }
+      if (isRpdExhausted(_model)) {
+        return buildRetryableFallback(RateLimitReason.QUOTA_EXHAUSTED);
+      }
+      if (isRpmExhausted(_model)) {
+        return buildRetryableFallback(RateLimitReason.RATE_LIMIT_EXCEEDED);
+      }
+      if (isTpmExhausted(_model)) {
+        return buildRetryableFallback(RateLimitReason.RATE_LIMIT_EXCEEDED);
+      }
     }
 
-    // Issue #2321: Anthropic OAuth (Claude Pro/Team) returns 429 with
-    // "Usage Limit Reached" for the 5-hour subscription quota. The
-    // pattern-based classifier now flags these as QUOTA_EXHAUSTED, but
-    // without a dedicated branch the request would still fall through to
-    // the generic 429 retry path (~5s base cooldown). Honor upstream
-    // Retry-After / reset hints only when the profile enables them;
-    // otherwise apply a local 1h cooldown so all Pro accounts on the same
-    // subscription tier stop cycling through tight retries without letting
-    // upstream-provided windows bypass the operator setting. (We
-    // deliberately do not use COOLDOWN_MS.paymentRequired here — that
-    // constant is 2 minutes, which is shorter than the recovery time of a
-    // subscription quota.)
+    // T10 (sub2api #1169) + #8247: credits/quota exhausted; *-compatible-* nicknames stay model-scoped
+    // unless the body is an account-level Open Platform empty wallet.
     if (
       shouldUseQuotaSignal &&
-      !isCreditsExhausted(errorStr) &&
-      !isDailyQuotaExhausted(errorStr) &&
-      isSubscriptionQuotaText(errorStr.toLowerCase())
+      isCreditsExhausted(errorStr) &&
+      (!isCompatibleProvider(provider) || isMoonshotAccountBalanceExhausted(errorStr))
     ) {
-      // getUpstreamRetryHintMs() gates both headers and body reset text on
-      // profile.useUpstreamRetryHints.
-      const hintMs = getUpstreamRetryHintMs();
-      const SUBSCRIPTION_QUOTA_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
-      const bodyHint = parseRetryFromErrorText(errorStr);
       return {
         shouldFallback: true,
-        cooldownMs: hintMs ?? SUBSCRIPTION_QUOTA_COOLDOWN_MS,
+        cooldownMs: COOLDOWN_MS.paymentRequired ?? 3600 * 1000, // 1h cooldown
         reason: RateLimitReason.QUOTA_EXHAUSTED,
-        usedUpstreamRetryHint: Boolean(hintMs),
-        quotaResetHintMs: bodyHint ?? undefined,
+        creditsExhausted: true,
       };
     }
 
-    const quotaResetHintMs = parseRetryFromErrorText(errorStr);
+    // Daily quota exhausted. TPD uses the node clock / header; other daily
+    // quota text still uses getMsUntilTomorrow. TPD without either is not a
+    // host-midnight lock — fall through to short 429.
+    if (shouldUseQuotaSignal && isDailyQuotaExhausted(errorStr)) {
+      if (isTpdRateLimit(errorStr)) {
+        const headerResetAtMs = parseResetFromHeaders(headers);
+        const tpdMs = resolveTpdCooldownMs(errorStr, {
+          timezone: dailyReset?.timezone,
+          hour: dailyReset?.hour,
+          nowMs: dailyReset?.nowMs,
+          headerResetAtMs,
+        });
+        if (tpdMs == null) {
+          // no clock, no header — short 429, do not guess midnight
+          console.warn(
+            "[accountFallback] TPD 429 without node daily-reset clock or Reset header; using short cooldown",
+            { provider },
+          );
+        } else {
+          return {
+            shouldFallback: true,
+            cooldownMs: tpdMs,
+            reason: RateLimitReason.QUOTA_EXHAUSTED,
+            dailyQuotaExhausted: true,
+          };
+        }
+      } else {
+        const msUntilTomorrow = getMsUntilTomorrow();
+        // Cap at 24 hours to handle timezone edge cases
+        const cooldownMs = Math.min(msUntilTomorrow, 24 * 60 * 60 * 1000);
+        return {
+          shouldFallback: true,
+          cooldownMs,
+          reason: RateLimitReason.QUOTA_EXHAUSTED,
+          dailyQuotaExhausted: true,
+        };
+      }
+    }
+
+    // Issue #2321 (5h subscription quota) + Issue #3709 (ollama-cloud weekly
+    // cap): both classifiers live in quotaTextCooldowns.ts (this file is
+    // frozen at its file-size-baseline cap). The weekly check runs
+    // UNCONDITIONALLY (not gated by shouldUseQuotaSignal) because it targets
+    // apikey-category providers like ollama-cloud, which the oauth-only
+    // shouldUseQuotaSignal gate deliberately excludes from the subscription
+    // check above.
+    if (shouldUseQuotaSignal && !isCreditsExhausted(errorStr) && !isDailyQuotaExhausted(errorStr)) {
+      const subResult = buildSubscriptionQuotaFallback(
+        errorStr,
+        () => getUpstreamRetryHint()?.retryAfterMs ?? null,
+        parseRetryFromErrorText,
+        provider
+      );
+      if (subResult) return subResult;
+    }
+    const weeklyResult = buildWeeklyQuotaFallback(errorStr);
+    if (weeklyResult) return weeklyResult;
+    // Issue #7071 (session usage cap) is the same sibling gap as #3709 above —
+    // runs UNCONDITIONALLY for the same reason: apikey-category providers
+    // like ollama-cloud are excluded from the oauth-only shouldUseQuotaSignal
+    // gate.
+    const sessionResult = buildSessionQuotaFallback(errorStr);
+    if (sessionResult) return sessionResult;
+
+    const detectedRetryHint = detectRetryHint();
+    const quotaResetHintMs = detectedRetryHint?.retryAfterMs ?? parseRetryFromErrorText(errorStr);
+    const quotaResetHintSource: RetryHintProvenance | undefined = detectedRetryHint
+      ? detectedRetryHint.provenance
+      : quotaResetHintMs
+        ? "body"
+        : undefined;
     if (
       shouldUseQuotaSignal &&
       quotaResetHintMs &&
@@ -1497,6 +2037,7 @@ export function checkFallbackError(
       return {
         ...fallbackResult,
         quotaResetHintMs,
+        retryHintSource: fallbackResult.retryHintSource ?? quotaResetHintSource,
       };
     }
 
@@ -1512,6 +2053,36 @@ export function checkFallbackError(
       return { shouldFallback: false, cooldownMs: 0, reason: RateLimitReason.UNKNOWN };
     }
 
+    // #10334 — agentrouter EXCLUSIVE: consult the provider rules BEFORE the
+    // apikey-FORBIDDEN early-return below, so a recognized 403 body (e.g.
+    // "无权访问模型") carries the rule's declared reason/cooldown/scope instead of
+    // the generic short auth cooldown. Gated on honorsRuleLockScope — for any
+    // other provider this block is a no-op and the early-return stays identical.
+    if (status === HTTP_STATUS.FORBIDDEN && provider && honorsRuleLockScope(provider)) {
+      const forbiddenMatch = getProviderErrorRuleMatch(
+        provider,
+        status,
+        headers,
+        resolveRuleMatchBody(provider, structuredError ?? null, errorStr)
+      );
+      if (forbiddenMatch) {
+        const scaled = getScaledBaseCooldown(
+          forbiddenMatch.reason as RateLimitReasonValue,
+          backoffLevel
+        );
+        const ruleCooldownMs = forbiddenMatch.cooldownMs;
+        return {
+          shouldFallback: true,
+          cooldownMs: ruleCooldownMs ?? scaled.cooldownMs,
+          baseCooldownMs: ruleCooldownMs ?? scaled.baseCooldownMs,
+          configuredCooldownMs: ruleCooldownMs,
+          newBackoffLevel: ruleCooldownMs !== undefined ? 0 : scaled.newBackoffLevel,
+          reason: forbiddenMatch.reason,
+          ruleScope: forbiddenMatch.scope,
+        };
+      }
+    }
+
     if (
       status === HTTP_STATUS.FORBIDDEN &&
       provider &&
@@ -1520,20 +2091,11 @@ export function checkFallbackError(
       !errorStr.toLowerCase().includes("hour quota") &&
       !errorStr.toLowerCase().includes("quota has been exceeded")
     ) {
-      return buildRetryableFallback(RateLimitReason.AUTH_ERROR);
-    }
-  }
-
-  // Gemini-specific: use known published RPM/RPD limits to distinguish 429 types.
-  // Gemini returns the same error body for both, so we use per-model request
-  // counters to decide: if daily count >= RPD → quota_exhausted (midnight lockout);
-  // if minute count >= RPM → rate_limit_exceeded (exponential backoff).
-  if (provider === "gemini" && status === HTTP_STATUS.RATE_LIMITED && _model) {
-    if (isRpdExhausted(_model)) {
-      return buildRetryableFallback(RateLimitReason.QUOTA_EXHAUSTED);
-    }
-    if (isRpmExhausted(_model)) {
-      return buildRetryableFallback(RateLimitReason.RATE_LIMIT_EXCEEDED);
+      return resolveApiKeyForbiddenFallback(
+        errorStr,
+        buildRetryableFallback,
+        RateLimitReason.AUTH_ERROR
+      );
     }
   }
 
@@ -1552,7 +2114,12 @@ export function checkFallbackError(
       // specific configured reasons (e.g. 503 → SERVER_ERROR would be
       // shadowed by 503 → MODEL_CAPACITY).
       const providerMatch = provider
-        ? getProviderErrorRuleMatch(provider, status, headers, structuredError ?? null)
+        ? getProviderErrorRuleMatch(
+            provider,
+            status,
+            headers,
+            resolveRuleMatchBody(provider, structuredError ?? null, errorStr)
+          )
         : null;
       const reason = providerMatch
         ? providerMatch.reason
@@ -1568,6 +2135,8 @@ export function checkFallbackError(
         providerMatch?.cooldownMs !== undefined && providerMatch.cooldownMs > 0
           ? providerMatch.cooldownMs
           : undefined;
+      const ruleScope =
+        providerMatch && honorsRuleLockScope(provider) ? providerMatch.scope : undefined;
       const fallback = buildRetryableFallback(reason);
       if (providerCooldownMs !== undefined) {
         return {
@@ -1575,22 +2144,57 @@ export function checkFallbackError(
           cooldownMs: providerCooldownMs,
           baseCooldownMs: providerCooldownMs,
           configuredCooldownMs: providerCooldownMs,
+          ruleScope,
         };
       }
-      return fallback;
+      return { ...fallback, ruleScope };
     }
-    const cooldownMs = configuredRule.cooldownMs ?? 0;
+    // #6842: non-backoff configured rules (e.g. status_402) previously never
+    // consulted providerRuleRegistry, so a provider-specific rule (like
+    // OpenRouter's credit-exhausted 402 lock) could never override the
+    // generic zero-cooldown default. Mirror the backoff branch above so
+    // provider rules win on cooldown/reason regardless of `backoff`.
+    const providerMatch = provider
+      ? getProviderErrorRuleMatch(
+          provider,
+          status,
+          headers,
+          resolveRuleMatchBody(provider, structuredError ?? null, errorStr)
+        )
+      : null;
+    const cooldownMs = providerMatch?.cooldownMs ?? configuredRule.cooldownMs ?? 0;
+    const ruleScope =
+      providerMatch && honorsRuleLockScope(provider) ? providerMatch.scope : undefined;
     return {
       shouldFallback: true,
       cooldownMs,
       baseCooldownMs: cooldownMs,
       configuredCooldownMs: cooldownMs,
-      reason: configuredRule.reason ?? RateLimitReason.UNKNOWN,
+      reason: providerMatch?.reason ?? configuredRule.reason ?? RateLimitReason.UNKNOWN,
+      ruleScope,
     };
   }
 
   if (status === HTTP_STATUS.NOT_ACCEPTABLE || retryableStatuses.has(status)) {
     return buildRetryableFallback(RateLimitReason.SERVER_ERROR);
+  }
+
+  // 432 -- plan limit reached (e.g. Tavily, Context7, and search upstreams)
+  if (status === HTTP_STATUS.PLAN_LIMIT_EXCEEDED) {
+    const subResult = buildSubscriptionQuotaFallback(
+      errorStr,
+      () => getUpstreamRetryHint()?.retryAfterMs ?? null,
+      parseRetryFromErrorText,
+      provider
+    );
+    if (subResult) return subResult;
+    const cooldownMs = getUpstreamRetryHint()?.retryAfterMs ?? SUBSCRIPTION_QUOTA_COOLDOWN_MS;
+    return {
+      shouldFallback: true,
+      cooldownMs,
+      baseCooldownMs: cooldownMs,
+      reason: RateLimitReason.QUOTA_EXHAUSTED,
+    };
   }
 
   // 400 — context overflow / malformed request / model access denied
@@ -1623,8 +2227,8 @@ export function checkFallbackError(
     const isMalformed = MALFORMED_REQUEST_PATTERNS.some((p) => p.test(errorStr));
     const isParamValidation = PARAM_VALIDATION_PATTERNS.some((p) => p.test(errorStr));
     const isModelAccessDenied = isModelAccessDeniedStructured || matchesModelAccessPattern;
-
-    if (isOverflow || isMalformed || isParamValidation || isModelAccessDenied) {
+    const isNimDegraded = isNimFunctionDegraded(errorStr);
+    if (isOverflow || isMalformed || isParamValidation || isModelAccessDenied || isNimDegraded) {
       return {
         shouldFallback: true,
         cooldownMs: 0,
@@ -1672,7 +2276,7 @@ export function cooldownUntilMs(value: string | number | Date | null | undefined
   if (value instanceof Date) return value.getTime();
   if (typeof value === "number") return value;
   const raw = value.trim();
-  if (/^\d+(\.\d+)?$/.test(raw)) return Number(raw);
+  if (COOLDOWN_NUMERIC_RE.test(raw)) return Number(raw);
   return new Date(raw).getTime();
 }
 
@@ -1784,13 +2388,15 @@ export function resetAccountState<T extends AccountState | null | undefined>(
 export function applyErrorState<T extends AccountState | null | undefined>(
   account: T,
   status: number,
-  errorText: string | null,
-  provider: string | null = null
+  errText: string | null,
+  prov: string | null = null
 ): T | AccountState {
   if (!account) return account;
 
-  const backoffLevel = account.backoffLevel || 0;
-  const fallbackDecision = checkFallbackError(status, errorText, backoffLevel, null, provider);
+  const lvl = account.backoffLevel || 0;
+  const fallbackDecision = checkFallbackError(status, errText, lvl, null, prov, null, null, null, {
+    account,
+  });
   const { cooldownMs, reason } = fallbackDecision;
   const newBackoffLevel =
     "newBackoffLevel" in fallbackDecision ? fallbackDecision.newBackoffLevel : undefined;
@@ -1812,8 +2418,8 @@ export function applyErrorState<T extends AccountState | null | undefined>(
   const nextState: T | AccountState = {
     ...account,
     rateLimitedUntil: effectiveCooldownMs > 0 ? getUnavailableUntil(effectiveCooldownMs) : null,
-    backoffLevel: newBackoffLevel ?? backoffLevel,
-    lastError: { status, message: errorText, timestamp: new Date().toISOString(), reason },
+    backoffLevel: newBackoffLevel ?? lvl,
+    lastError: { status, message: errText, timestamp: new Date().toISOString(), reason },
     status: "error",
   };
 
@@ -1826,12 +2432,7 @@ export function applyErrorState<T extends AccountState | null | undefined>(
   // (`markConnectionQuotaExhausted`) so a DB failure can never crash the
   // chat path. See issue #1 (per-account 429 cascade not persisting).
   const connId = (account as AccountState | null | undefined)?.id;
-  if (
-    typeof connId === "string" &&
-    connId.length > 0 &&
-    effectiveCooldownMs > 0 &&
-    nextState.rateLimitedUntil
-  ) {
+  if (typeof connId === "string" && connId.length > 0 && effectiveCooldownMs > 0 && nextState.rateLimitedUntil && !isAntigravityQuotaProvider(prov)) {
     try {
       const untilMs = cooldownUntilMs(nextState.rateLimitedUntil);
       if (Number.isFinite(untilMs) && untilMs > Date.now()) {
@@ -1844,6 +2445,8 @@ export function applyErrorState<T extends AccountState | null | undefined>(
 
   return nextState;
 }
+
+export { isAccountSemaphoreFull } from "./accountSemaphore.ts";
 
 /**
  * Get account health score (0-100) for P2C selection (Phase 9)

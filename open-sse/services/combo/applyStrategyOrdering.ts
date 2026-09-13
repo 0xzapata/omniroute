@@ -4,6 +4,11 @@ import { resolveMaxConcurrentByConnection } from "./concurrencyCaps.ts";
 import { sortTargetsByContextSize } from "./comboStructure.ts";
 import { selectQuotaShareTarget } from "./quotaShareStrategy.ts";
 import {
+  applyPromptCacheAffinity,
+  expandPromptCacheAffinityTargets,
+  resolvePromptCacheAffinityKey,
+} from "./promptCacheAffinity.ts";
+import {
   orderTargetsByHeadroom,
   orderTargetsByResetAwareQuota,
   orderTargetsByResetWindow,
@@ -15,12 +20,28 @@ import {
 } from "./targetSorters.ts";
 import type { ComboLike, ComboLogger, ResolvedComboTarget } from "./types.ts";
 
+/**
+ * Result of {@link applyStrategyOrdering}.
+ *
+ * `quotaShareRelease` carries the idempotent release for the in-flight slot that
+ * quota-share ordering reserves for its winner (#11371). It is non-null only when
+ * the `quota-share` strategy ran; every other strategy leaves it null. The caller
+ * MUST invoke it exactly once when the request settles — selection reserves the
+ * slot, so dropping the callback leaks the counter monotonically upward and
+ * degenerates P2C into "fewest lifetime dispatches".
+ */
+export interface ApplyStrategyOrderingResult {
+  orderedTargets: ResolvedComboTarget[];
+  quotaShareRelease: (() => void) | null;
+}
+
 export interface ApplyStrategyOrderingDeps {
   combo: ComboLike;
   config: Record<string, unknown>;
   body: Record<string, unknown>;
   log: ComboLogger;
   apiKeyAllowedConnections: string[] | null;
+  sessionKey?: string | null;
 }
 
 /**
@@ -39,13 +60,14 @@ export async function applyStrategyOrdering(
   strategy: string,
   initialOrderedTargets: ResolvedComboTarget[],
   deps: ApplyStrategyOrderingDeps
-): Promise<ResolvedComboTarget[]> {
-  const { combo, config, body, log, apiKeyAllowedConnections } = deps;
+): Promise<ApplyStrategyOrderingResult> {
+  const { combo, config, body, log, apiKeyAllowedConnections, sessionKey } = deps;
   let orderedTargets = initialOrderedTargets;
+  let quotaShareRelease: (() => void) | null = null;
 
   if (strategy === "lkgp") {
     try {
-      const { getLKGP } = await import("../../../src/lib/localDb");
+      const { getLKGP } = await import("@/lib/db/settings");
       const lkgpProvider = await getLKGP(combo.name, combo.id || combo.name);
 
       if (lkgpProvider) {
@@ -196,6 +218,16 @@ export async function applyStrategyOrdering(
   } else if (strategy === "context-optimized") {
     orderedTargets = sortTargetsByContextSize(orderedTargets);
     log.info("COMBO", `Context-optimized ordering: largest first (${orderedTargets[0]?.modelStr})`);
+  } else if (strategy === "cache-optimized") {
+    if (resolvePromptCacheAffinityKey(body)) {
+      orderedTargets = await expandPromptCacheAffinityTargets(orderedTargets);
+    }
+    const affinity = applyPromptCacheAffinity(orderedTargets, body, true, "global", sessionKey);
+    orderedTargets = affinity.targets;
+    log.info(
+      "COMBO",
+      `Cache-optimized ordering: ${orderedTargets[0]?.modelStr}${orderedTargets[0]?.connectionId ? ` (${orderedTargets[0].connectionId})` : ""} first`
+    );
   } else if (strategy === "headroom") {
     orderedTargets = await orderTargetsByHeadroom(
       orderedTargets,
@@ -213,14 +245,18 @@ export async function applyStrategyOrdering(
     const qsModel =
       typeof body?.model === "string" ? body.model : (orderedTargets[0]?.modelStr ?? "");
     const qsMaxConcurrent = await resolveMaxConcurrentByConnection(orderedTargets);
-    orderedTargets = selectQuotaShareTarget(orderedTargets, combo.name, qsModel, Date.now(), {
+    const qsSelection = selectQuotaShareTarget(orderedTargets, combo.name, qsModel, Date.now(), {
       maxConcurrentByConnection: qsMaxConcurrent,
-    }).orderedTargets;
+    });
+    orderedTargets = qsSelection.orderedTargets;
+    // #11371: the reservation made inside selectQuotaShareTarget must outlive this
+    // call — hand the release to the host so it can fire it when the request settles.
+    quotaShareRelease = qsSelection.decrementInflight;
     log.info(
       "COMBO",
       `Quota-share ordering: ${orderedTargets[0]?.modelStr}${orderedTargets[0]?.connectionId ? ` (${orderedTargets[0].connectionId})` : ""} selected (DRR+P2C)`
     );
   }
 
-  return orderedTargets;
+  return { orderedTargets, quotaShareRelease };
 }

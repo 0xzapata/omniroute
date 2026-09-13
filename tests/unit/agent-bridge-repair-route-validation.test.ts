@@ -1,14 +1,13 @@
 /**
  * POST /api/tools/agent-bridge/repair validates its body with RepairBodySchema
- * via safeParse (route validation gate t06) and falls back to the cached sudo
- * password when none is supplied. These tests pin that schema contract. (Gap 7.)
+ * via safeParse (route validation gate t06) and rejects privileged repair when
+ * no sudo password is supplied or cached (#7836). These tests pin that schema
+ * contract. (Gap 7.)
  */
 import test from "node:test";
 import assert from "node:assert/strict";
 
-const { RepairBodySchema } = await import(
-  "../../src/app/api/tools/agent-bridge/repair/route.ts"
-);
+const { RepairBodySchema } = await import("../../src/app/api/tools/agent-bridge/repair/route.ts");
 
 test("accepts a body with a string sudoPassword", () => {
   const parsed = RepairBodySchema.safeParse({ sudoPassword: "hunter2" });
