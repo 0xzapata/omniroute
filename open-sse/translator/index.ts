@@ -20,6 +20,7 @@ import {
   injectOptionalEnumOmissionForTools,
   injectOptionalStringOmissionForTools,
   strictCompleteToolSearchSchemas,
+  inlineRecursiveSchemaRefsForTools,
   sanitizeToolDescriptions,
 } from "./helpers/schemaCoercion.ts";
 import { getRequestTranslator, getResponseTranslator } from "./registry.ts";
@@ -626,6 +627,7 @@ export function translateRequest(
       result.tools = injectOptionalEnumOmissionForTools(result.tools);
       if (isOpencodeGoProvider(normalizedProvider)) {
         result.tools = strictCompleteToolSearchSchemas(result.tools);
+        result.tools = inlineRecursiveSchemaRefsForTools(result.tools);
       }
     }
   }
