@@ -19,6 +19,7 @@ import { errorResponse } from "@omniroute/open-sse/utils/error";
 import {
   withEarlyStreamKeepalive,
   OPENAI_RESPONSES_ERROR_FRAME,
+  responsesFailedFrame,
 } from "@omniroute/open-sse/utils/earlyStreamKeepalive";
 import { resolveKeepaliveThreshold } from "@omniroute/open-sse/utils/keepaliveThreshold";
 import { OPENAI_RESPONSES_IN_PROGRESS_FRAME } from "@omniroute/open-sse/utils/sseHeartbeat";
@@ -198,6 +199,7 @@ async function postHandler(request: any) {
           intervalMs: SSE_HEARTBEAT_INTERVAL_MS,
         },
         errorFrame: OPENAI_RESPONSES_ERROR_FRAME,
+        frameErrorBody: responsesFailedFrame,
         correlationId,
       });
     }
