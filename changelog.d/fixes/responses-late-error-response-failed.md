@@ -1,0 +1,1 @@
+- Frame late upstream errors on `/v1/responses` as `response.failed` (with the real upstream message and code) instead of an untyped `data: {"error":…}` line, so Codex reports the actual failure rather than "stream closed before response.completed" (Heimdall incident 2026-09-15, muse-spark via opencode-go).
