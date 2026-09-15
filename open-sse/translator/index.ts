@@ -19,12 +19,14 @@ import {
   injectEmptyReasoningContentForToolCalls,
   injectOptionalEnumOmissionForTools,
   injectOptionalStringOmissionForTools,
+  strictCompleteToolSearchSchemas,
   sanitizeToolDescriptions,
 } from "./helpers/schemaCoercion.ts";
 import { getRequestTranslator, getResponseTranslator } from "./registry.ts";
 import { bootstrapTranslatorRegistry } from "./bootstrap.ts";
 import { hasThinkingConfig, normalizeThinkingConfig } from "../services/provider.ts";
 import { applyThinkingBudget } from "../services/thinkingBudget.ts";
+import { isOpencodeGoProvider } from "../services/opencodeReasoningSanitizer.ts";
 import { applyReasoningRuleDirective } from "@/lib/reasoningRouting/policy";
 import { getModelPreserveVideoUrl } from "@/lib/db/models/modelPreserveVideoUrl";
 import { getResolvedModelCapabilities, supportsReasoning } from "../services/modelCapabilities.ts";
@@ -622,6 +624,9 @@ export function translateRequest(
     result.tools = sanitizeToolDescriptions(result.tools);
     if (targetFormat === FORMATS.OPENAI_RESPONSES) {
       result.tools = injectOptionalEnumOmissionForTools(result.tools);
+      if (isOpencodeGoProvider(normalizedProvider)) {
+        result.tools = strictCompleteToolSearchSchemas(result.tools);
+      }
     }
   }
 

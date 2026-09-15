@@ -638,3 +638,37 @@ export function sanitizeClaudeToolSchemas(tools: unknown): unknown {
     return { ...tool, input_schema: sanitizeClaudeToolSchema(tool.input_schema) };
   });
 }
+
+// OpenCode Go validates every Responses built-in `tool_search` schema in strict mode
+// on muse-spark ("'required' is required ... including every key in properties.
+// Missing 'limit'", Heimdall 2026-09-15) while DeepSeek on the same gateway accepts
+// it as sent. Codex declares `limit` optional. Strict-complete the schema in place:
+// every property becomes required, the previously-optional ones widen to accept
+// `null` (OpenAI's documented strict-mode omission idiom), additionalProperties is
+// pinned false. The tool keeps `type:"tool_search"` and `execution:"client"` so Codex
+// still receives a `tool_search_call` item it can resolve locally.
+export function strictCompleteToolSearchSchemas(tools: unknown): unknown {
+  if (!Array.isArray(tools)) return tools;
+  return tools.map((tool) => {
+    if (!isPlainObject(tool) || !/^tool_search/.test(String(tool.type))) return tool;
+    const schema = tool.parameters;
+    if (!isPlainObject(schema) || !isPlainObject(schema.properties)) return tool;
+    const required = new Set(Array.isArray(schema.required) ? schema.required : []);
+    const properties: JsonRecord = {};
+    for (const [key, propSchema] of Object.entries(schema.properties)) {
+      properties[key] =
+        required.has(key) || !isPlainObject(propSchema)
+          ? propSchema
+          : { ...propSchema, type: widenTypeWithNull(propSchema.type) };
+    }
+    return {
+      ...tool,
+      parameters: {
+        ...schema,
+        properties,
+        required: Object.keys(schema.properties),
+        additionalProperties: false,
+      },
+    };
+  });
+}
