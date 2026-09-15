@@ -638,3 +638,95 @@ export function sanitizeClaudeToolSchemas(tools: unknown): unknown {
     return { ...tool, input_schema: sanitizeClaudeToolSchema(tool.input_schema) };
   });
 }
+
+// OpenCode Go validates every Responses built-in `tool_search` schema in strict mode
+// on muse-spark ("'required' is required ... including every key in properties.
+// Missing 'limit'", Heimdall 2026-09-15) while DeepSeek on the same gateway accepts
+// it as sent. Codex declares `limit` optional. Strict-complete the schema in place:
+// every property becomes required, the previously-optional ones widen to accept
+// `null` (OpenAI's documented strict-mode omission idiom), additionalProperties is
+// pinned false. The tool keeps `type:"tool_search"` and `execution:"client"` so Codex
+// still receives a `tool_search_call` item it can resolve locally.
+export function strictCompleteToolSearchSchemas(tools: unknown): unknown {
+  if (!Array.isArray(tools)) return tools;
+  return tools.map((tool) => {
+    if (!isPlainObject(tool) || !/^tool_search/.test(String(tool.type))) return tool;
+    const schema = tool.parameters;
+    if (!isPlainObject(schema) || !isPlainObject(schema.properties)) return tool;
+    const required = new Set(Array.isArray(schema.required) ? schema.required : []);
+    const properties: JsonRecord = {};
+    for (const [key, propSchema] of Object.entries(schema.properties)) {
+      properties[key] =
+        required.has(key) || !isPlainObject(propSchema)
+          ? propSchema
+          : { ...propSchema, type: widenTypeWithNull(propSchema.type) };
+    }
+    return {
+      ...tool,
+      parameters: {
+        ...schema,
+        properties,
+        required: Object.keys(schema.properties),
+        additionalProperties: false,
+      },
+    };
+  });
+}
+
+// OpenCode Go rejects any tool schema carrying a self-referential `$ref` with 400
+// "Recursive JSON schemas are not currently supported" (Heimdall 2026-09-15: Codex
+// desktop's gmail `_create_draft` / `_send_email` MCP tools reference
+// `#/$defs/GmailMessagePartRequest` from inside itself). Inline every local
+// `#/$defs/…` / `#/definitions/…` reference; when a reference re-enters a definition
+// already on the expansion stack, replace it with an opaque object so the schema
+// stays finite. `$defs` / `definitions` are dropped once nothing points at them.
+function inlineLocalRefsNonRecursive(node: unknown, root: JsonRecord, stack: string[]): unknown {
+  if (Array.isArray(node)) return node.map((item) => inlineLocalRefsNonRecursive(item, root, stack));
+  if (!isPlainObject(node)) return node;
+  const ref = typeof node.$ref === "string" ? node.$ref : "";
+  const match = /^#\/(\$defs|definitions)\/([^/]+)$/.exec(ref);
+  if (match) {
+    const container = root[match[1]];
+    const target = isPlainObject(container) ? container[match[2]] : undefined;
+    const rest: JsonRecord = { ...node };
+    delete rest.$ref;
+    if (!isPlainObject(target)) return inlineLocalRefsNonRecursive(rest, root, stack);
+    if (stack.includes(ref)) {
+      return { type: "object", ...rest, description: `${typeof rest.description === "string" ? rest.description + " " : ""}(nested ${match[2]}; recursion elided)` };
+    }
+    const expanded = inlineLocalRefsNonRecursive(target, root, [...stack, ref]);
+    return { ...(isPlainObject(expanded) ? expanded : {}), ...inlineLocalRefsNonRecursive(rest, root, stack) as JsonRecord };
+  }
+  const out: JsonRecord = {};
+  for (const [key, value] of Object.entries(node)) {
+    if (key === "$defs" || key === "definitions") continue;
+    out[key] = inlineLocalRefsNonRecursive(value, root, stack);
+  }
+  return out;
+}
+
+export function inlineRecursiveSchemaRefs(schema: unknown): unknown {
+  if (!isPlainObject(schema)) return schema;
+  if (!JSON.stringify(schema).includes('"$ref"')) return schema;
+  return inlineLocalRefsNonRecursive(schema, schema, []);
+}
+
+/** Applies `inlineRecursiveSchemaRefs` to function tools, Chat-shaped function tools and Responses namespace children. */
+export function inlineRecursiveSchemaRefsForTools(tools: unknown): unknown {
+  if (!Array.isArray(tools)) return tools;
+  const fix = (tool: unknown): unknown => {
+    if (!isPlainObject(tool)) return tool;
+    const result: JsonRecord = { ...tool };
+    if (isPlainObject(result.function) && "parameters" in result.function) {
+      result.function = { ...result.function, parameters: inlineRecursiveSchemaRefs(result.function.parameters) };
+    }
+    if ("parameters" in result && !isPlainObject(result.function)) {
+      result.parameters = inlineRecursiveSchemaRefs(result.parameters);
+    }
+    if (result.type === "namespace" && Array.isArray(result.tools)) {
+      result.tools = result.tools.map(fix);
+    }
+    return result;
+  };
+  return tools.map(fix);
+}
