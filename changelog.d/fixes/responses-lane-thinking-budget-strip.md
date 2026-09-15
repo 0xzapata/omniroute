@@ -1,0 +1,1 @@
+- Strip the thinking-budget service's Claude-shaped `thinking` object and any stray top-level `reasoning_effort` from Responses-API upstream bodies, so strict Responses providers (OpenCode Go muse-spark) no longer 400 with "unknown parameter `thinking`/`reasoning_effort`" when the dashboard Thinking-Budget is in custom/adaptive mode.
