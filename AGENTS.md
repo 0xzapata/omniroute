@@ -595,6 +595,52 @@ is invalid, it points out of the filesystem root`) while typecheck, lint and the
 list` shows worktrees you didn't create, leave them alone. End every session with the main
    checkout back on the branch it started on (the active `release/vX.Y.Z`, never `main`).
 
+### Post-push cleanup (MANDATORY once your work is on the remote)
+
+Run this **after** the push succeeds and **only** against artifacts and processes **you**
+created this session. Scope is the discipline: another session's `node_modules` is its
+working state, and its dev server is its live debugging session.
+
+1. **Confirm the work is safe on the remote first.** Never delete anything until the commit
+   is provably pushed — a branch deleted before its commit lands is unrecoverable:
+
+   ```bash
+   git merge-base --is-ancestor <sha> origin/<branch> && echo SAFE
+   ```
+
+2. **Drop build artifacts you generated.** Both are gitignored and regenerable:
+
+   ```bash
+   rm -rf node_modules dist          # inside YOUR worktree only
+   ```
+
+   Skip `node_modules` if you created it with `cp -al` per step 2 above — hard links cost
+   near-zero disk, and removing them is wasted work. Delete it when you ran a real
+   `npm ci`/`npm install` (~3.8 G).
+
+3. **Stop servers you spawned.** Dev servers survive the agent that started them and hold
+   their port, so the next session silently serves a stale build. Kill by **cwd**, never by
+   name or port alone — several projects run Next on adjacent ports:
+
+   ```bash
+   lsof -nP -iTCP -sTCP:LISTEN | grep node        # list listeners
+   lsof -a -p <pid> -d cwd -Fn | grep ^n          # confirm it is THIS repo
+   kill <pid>                                     # only after the cwd matches
+   ```
+
+   A listener whose cwd is another repo is not yours — leave it running.
+
+4. **Reclaim git garbage after heavy fetch/rebase work** (interrupted fetches strand
+   `tmp_pack_*` files; a repack routinely halves `.git`):
+
+   ```bash
+   git count-objects -vH | grep -E "garbage|size-pack"
+   git gc --prune=now
+   ```
+
+5. **Then** tear down the worktree and branch per step 4 above, and leave the main checkout
+   on the branch it started on.
+
 ### Base-green check (PRs must not be born red)
 
 Before cutting a branch, merging the base into a PR branch, mass-retargeting PRs, or opening a

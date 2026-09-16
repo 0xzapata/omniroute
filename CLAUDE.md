@@ -19,6 +19,18 @@ isolation". Claude-Code-specific points:
   `.claude/worktrees/` (the canonical path). Create the worktree with the documented `git
 worktree add` command, then call `EnterWorktree` with its `path`.
 
+## Post-push cleanup — Claude Code specifics
+
+The full checklist (safety check, `node_modules`/`dist`, dev servers, `git gc`) is in
+`AGENTS.md` → Git Workflow → "Post-push cleanup". Claude-Code-specific points:
+
+- Run it after the push, in the same turn — cleanup deferred to "later" never happens, because
+  the session ends first.
+- `run_in_background` Bash calls and servers started by `/run` outlive the turn that spawned
+  them. Stop them with `TaskStop`, and check `lsof` for anything that escaped.
+- Subagents do not inherit this file. Any subagent you send to push must be told to clean up
+  after itself, or must hand the paths and PIDs back for you to clean.
+
 ## Cross-session safety — Claude Code specifics
 
 Hard Rules #19/#21/#22 (in `AGENTS.md`) govern parallel sessions. Operational reminders for this
