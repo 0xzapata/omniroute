@@ -545,6 +545,7 @@ export async function handleChatCore({
   modelPinned = false,
   skipResourcePressureGuard = false,
   reasoningTransportFallback = "drop",
+  hasMoreComboTargets = undefined,
   managedLease = null,
   // #12150 P1b: additive, optional video-bridge log/Memory shadow — shape is
   // VideoBridgeLogParam (defined near the top of this file). Built once in chat.ts from
@@ -1289,6 +1290,7 @@ export async function handleChatCore({
           // finer-grained metadata that plain combos never set.
           isComboStep: Boolean(isCombo) || Boolean(comboStepId || comboExecutionKey),
           headers: clientRawRequest?.headers ?? null,
+          hasMoreComboTargets,
         }),
       }
     );

@@ -437,6 +437,7 @@ export async function executeChatWithBreaker({
   modelPinned = false,
   routingComboId = null,
   reasoningTransportFallback = "drop",
+  hasMoreComboTargets = undefined,
   sessionAffinityKey = null,
   managedLease = null,
   // #12150 P1b: additive, optional video-bridge log/Memory shadow — undefined
@@ -501,6 +502,7 @@ export async function executeChatWithBreaker({
             routingComboId,
             sessionAffinityKey,
             reasoningTransportFallback,
+            hasMoreComboTargets,
             managedLease,
             videoBridgeLog,
             skipResourcePressureGuard: true,

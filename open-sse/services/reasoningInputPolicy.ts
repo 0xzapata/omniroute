@@ -398,11 +398,28 @@ function readFallbackHeader(
 export function resolveIncompatibleReasoningAction(options: {
   reasoningTransportFallback?: string | null;
   isComboStep?: boolean;
+  /**
+   * True when the combo loop has another target to try after this one; `false` on the
+   * last target; `undefined` when the caller doesn't thread it (single-target, or a
+   * combo path that hasn't been updated). Only the explicit `false` signal changes
+   * behavior — `undefined` keeps the historical "reject" so unthreaded callers don't
+   * silently start dropping reasoning.
+   */
+  hasMoreComboTargets?: boolean;
   headers?: Headers | Record<string, unknown> | null;
   env?: Record<string, string | undefined>;
 }): "drop" | "reject" {
   if (options.reasoningTransportFallback === "drop") return "drop";
-  if (options.isComboStep && options.reasoningTransportFallback === "skip") return "reject";
+  // Combo-step "skip": reject on every target that has a successor so the combo advances
+  // to the next candidate; on the LAST target (hasMoreComboTargets === false) drop the
+  // incompatible reasoning and proceed instead of exhausting every target and hard-failing.
+  // `!== false` preserves the current "reject" for callers that don't thread the field.
+  if (
+    options.isComboStep &&
+    options.reasoningTransportFallback === "skip" &&
+    options.hasMoreComboTargets !== false
+  )
+    return "reject";
 
   const headerRaw = readFallbackHeader(options.headers)?.trim().toLowerCase();
   if (headerRaw === "reject") return "reject";

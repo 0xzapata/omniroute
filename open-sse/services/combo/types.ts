@@ -60,6 +60,13 @@ export type SingleModelTarget =
       modelAbortSignal?: AbortSignal | null;
       /** True when this target was selected via context-cache session pinning. */
       modelPinned?: boolean;
+      /**
+       * False on the last target in the combo iteration; true when another target follows.
+       * Undefined when unthreaded. Consumed by `resolveIncompatibleReasoningAction` so a
+       * combo-step `reasoningTransportFallback: "skip"` drops (instead of rejects) on the
+       * final target, letting an all-incompatible combo succeed rather than hard-fail 400.
+       */
+      hasMoreComboTargets?: boolean;
     })
   | { modelAbortSignal: AbortSignal };
 
