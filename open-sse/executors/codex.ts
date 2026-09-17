@@ -58,7 +58,10 @@ import {
   splitCodexReasoningSuffix,
   type CodexEffortLevel as EffortLevel,
 } from "./codex/reasoningSuffix.ts";
-import { repairMissingCodexToolCallOutputs } from "./codex/toolCallRepair.ts";
+import {
+  repairMissingCodexToolCallOutputs,
+  deduplicateCodexFunctionCallOutputs,
+} from "./codex/toolCallRepair.ts";
 import { resolveAppServerConfig } from "./codex/appServerConfig.ts";
 import { CodexAppServerExecutor } from "./codex-app-server.ts";
 // Re-exported for external importers (tests + provider services).
@@ -1284,6 +1287,7 @@ export class CodexExecutor extends BaseExecutor {
     }
     stripOrphanedCodexFunctionCallOutputs(body);
     repairMissingCodexToolCallOutputs(body);
+    deduplicateCodexFunctionCallOutputs(body);
 
     // ── Cache-aware system prompt handling (both paths) ──
     //
