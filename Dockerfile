@@ -312,7 +312,23 @@ RUN --mount=type=cache,id=s/92ca8a61-c1ba-421f-a389-d48ac7258c2d-apt-cache,targe
   && git config --system url."https://github.com/".insteadOf "ssh://git@github.com/"
 
 # Install CLI tools globally. Separate layer from apt for better cache reuse.
+# Publication supplies a fresh value so Docker re-resolves @latest on every run.
+ARG CLI_TOOLS_REFRESH=local
 RUN --mount=type=cache,id=s/92ca8a61-c1ba-421f-a389-d48ac7258c2d-npm-cache,target=/root/.npm \
-  npm install -g --no-audit --no-fund @openai/codex@latest @anthropic-ai/claude-code@latest droid openclaw@latest
+  echo "Refreshing CLI tools: ${CLI_TOOLS_REFRESH}" \
+  && npm install -g --prefer-online --no-audit --no-fund @openai/codex@latest @anthropic-ai/claude-code@latest opencode-ai@latest droid openclaw@latest
 
 USER node
+
+# Official installers keep binaries and updater state owned by the runtime user.
+ENV PATH="/home/node/.local/bin:/home/node/.amp/bin:${PATH}"
+RUN curl -fsSL https://ampcode.com/install.sh -o /tmp/install-amp.sh \
+  && bash /tmp/install-amp.sh </dev/null \
+  && curl -fsSL https://cli.devin.ai/install.sh -o /tmp/install-devin.sh \
+  && CI=true bash /tmp/install-devin.sh </dev/null \
+  && rm /tmp/install-amp.sh /tmp/install-devin.sh \
+  && codex --version \
+  && claude --version \
+  && opencode --version \
+  && amp --version \
+  && devin --version
