@@ -15,6 +15,24 @@ const command = dockerfile
   ?.slice(4);
 assert.ok(command, "runner-cli installer instruction must exist");
 
+test("global CLI install explicitly permits required npm 12 lifecycle scripts", () => {
+  const install = dockerfile.match(/npm install -g [^\n]*@openai\/codex@latest[^\n]*/)?.[0];
+  assert.ok(install, "global CLI install must exist");
+  const allowed = install.match(/--allow-scripts=([^\s]+)/)?.[1].split(",") ?? [];
+  for (const name of [
+    "@anthropic-ai/claude-code",
+    "droid",
+    "opencode-ai",
+    "openclaw",
+    "esbuild",
+    "koffi",
+    "protobufjs",
+  ]) {
+    assert.ok(allowed.includes(name), `${name} needs an explicit lifecycle-script approval`);
+  }
+  assert.ok(!allowed.includes("*"), "do not approve arbitrary dependency scripts");
+});
+
 for (const installerStatus of [0, 19]) {
   test(`CLI installation skips onboarding and preserves installer status ${installerStatus}`, () => {
     const dir = mkdtempSync(join(tmpdir(), "omniroute-cli-install-"));
