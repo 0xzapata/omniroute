@@ -321,12 +321,15 @@ RUN --mount=type=cache,id=s/92ca8a61-c1ba-421f-a389-d48ac7258c2d-npm-cache,targe
 USER node
 
 # Official installers keep binaries and updater state owned by the runtime user.
+# Devin's installer invokes interactive setup even with CI=true. Remove only
+# that final call; preserve installation failures and verify the binary below.
 ENV PATH="/home/node/.local/bin:/home/node/.amp/bin:${PATH}"
 RUN curl -fsSL https://ampcode.com/install.sh -o /tmp/install-amp.sh \
   && bash /tmp/install-amp.sh </dev/null \
   && curl -fsSL https://cli.devin.ai/install.sh -o /tmp/install-devin.sh \
+  && sed -i.bak '/^"\$VERSION_DIR\/bin\/\$COMPILED_BIN_NAME" setup$/d' /tmp/install-devin.sh \
   && CI=true bash /tmp/install-devin.sh </dev/null \
-  && rm /tmp/install-amp.sh /tmp/install-devin.sh \
+  && rm /tmp/install-amp.sh /tmp/install-devin.sh /tmp/install-devin.sh.bak \
   && codex --version \
   && claude --version \
   && opencode --version \
