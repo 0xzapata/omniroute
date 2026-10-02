@@ -12,6 +12,8 @@ const core = await import("../../src/lib/db/core.ts");
 const providersDb = await import("../../src/lib/db/providers.ts");
 const auth = await import("../../src/sse/services/auth.ts");
 const { handleChatCore } = await import("../../open-sse/handlers/chatCore.ts");
+const { registerQuotaFetcher } = await import("../../open-sse/services/quotaPreflight.ts");
+const { registerCodexQuotaFetcher } = await import("../../open-sse/services/codexQuotaFetcher.ts");
 
 const originalFetch = globalThis.fetch;
 
@@ -127,9 +129,68 @@ async function invokeChatCore({
 
 test.afterEach(async () => {
   globalThis.fetch = originalFetch;
+  registerCodexQuotaFetcher();
   await waitForAsyncSideEffects();
   await resetStorage();
 });
+
+for (const creditState of ["unknown", "depleted", "usable"]) {
+  test(`Codex 429 rotation checks ${creditState} paid credits before dispatch`, async () => {
+    const first = await providersDb.createProviderConnection({
+      provider: "codex",
+      authType: "oauth",
+      accessToken: "rotation-first",
+      isActive: true,
+    });
+    const second = await providersDb.createProviderConnection({
+      provider: "codex",
+      authType: "oauth",
+      accessToken: "rotation-paid",
+      isActive: true,
+      providerSpecificData: { allowPaidCredits: true, quotaPreflightEnabled: false },
+    });
+    const checked: string[] = [];
+    registerQuotaFetcher("codex", async (id) => {
+      checked.push(id);
+      if (creditState === "unknown") return null;
+      return {
+        used: 100,
+        total: 100,
+        percentUsed: 1,
+        limitReached: true,
+        paidCredits: {
+          hasCredits: true,
+          unlimited: false,
+          overageLimitReached: false,
+          balance: creditState === "usable" ? 10 : 0,
+        },
+      };
+    });
+    const dispatched: string[] = [];
+    const { result } = await invokeChatCore({
+      model: "gpt-5.5",
+      connectionId: first.id,
+      credentials: {
+        accessToken: "rotation-first",
+        connectionId: first.id,
+        providerSpecificData: {},
+      },
+      body: { model: "gpt-5.5", input: `paid rotation ${creditState}`, stream: false },
+      responseFactory(captured: { headers: Record<string, string> }) {
+        const token = new Headers(captured.headers).get("authorization");
+        dispatched.push(token);
+        if (token === "Bearer rotation-paid") return buildResponsesResponse("paid success");
+        return Response.json(
+          { error: { message: "The usage limit has been reached" } },
+          { status: 429, headers: { "Retry-After": "60" } }
+        );
+      },
+    });
+    assert.deepEqual(checked, [second.id], "rotation must use the credit-aware selector");
+    assert.equal(dispatched.includes("Bearer rotation-paid"), creditState === "usable");
+    assert.equal(result.success, creditState === "usable");
+  });
+}
 
 test.after(async () => {
   globalThis.fetch = originalFetch;

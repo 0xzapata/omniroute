@@ -418,8 +418,10 @@ function parseCodexUsageResponse(
   const hasWindows = Boolean(parsedPrimary || parsedSecondary);
   if (!hasWindows && (useSparkWindows || !paidCredits)) return null;
 
-  const window5h = parsedPrimary ?? { percentUsed: 0, resetAt: null };
-  const window7d = parsedSecondary ?? { percentUsed: 0, resetAt: null };
+  // Credit-only accounts have no subscription headroom to advertise to scorers.
+  const missingWindow = { percentUsed: hasWindows ? 0 : 1, resetAt: null };
+  const window5h = parsedPrimary ?? missingWindow;
+  const window7d = parsedSecondary ?? missingWindow;
   const worstPercentUsed = hasWindows ? Math.max(window5h.percentUsed, window7d.percentUsed) : 1;
   const limitReached =
     !hasWindows || Boolean(selectedRateLimit["limit_reached"] ?? selectedRateLimit["limitReached"]);

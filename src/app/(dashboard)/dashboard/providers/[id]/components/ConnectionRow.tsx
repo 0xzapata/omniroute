@@ -20,6 +20,7 @@ import { normalizeCodexLimitPolicy, providerText, ERROR_TYPE_LABELS } from "../p
 import { getCodexPlanLabel } from "../codexPlanLabel";
 import type { CodexAccountPoolProjection } from "@omniroute/open-sse/services/codexAccount/index.ts";
 import CodexAccountDetails from "./CodexAccountDetails";
+import CodexPaidCreditsToggle from "./CodexPaidCreditsToggle";
 import ProviderQuotaVisibilityToggle from "./ProviderQuotaVisibilityToggle";
 
 // ---------------------------------------------------------------------------
@@ -519,7 +520,6 @@ export default function ConnectionRow({
   const claudeBlockExtraUsageEnabled = isClaude
     ? isClaudeExtraUsageBlockEnabled("claude", connection.providerSpecificData)
     : false;
-  const codexPaidCreditsEnabled = connection.providerSpecificData?.allowPaidCredits === true;
   const codexPlanLabel = getCodexPlanLabel(!!isCodex, connection.providerSpecificData);
   // #dario: this control is now a full mode selector (native/CLIProxyAPI/
   // Dario/fallback), not a binary toggle — cliproxyapiEnabled/
@@ -688,23 +688,10 @@ export default function ConnectionRow({
               </>
             )}
             {isCodex && connection.provider === "codex" && onToggleCodexPaidCredits && (
-              <>
-                <span className="text-text-muted/30 select-none">|</span>
-                <button
-                  onClick={() => onToggleCodexPaidCredits(!codexPaidCreditsEnabled)}
-                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium transition-all cursor-pointer ${
-                    codexPaidCreditsEnabled
-                      ? "bg-amber-500/15 text-amber-500 hover:bg-amber-500/25"
-                      : "bg-black/[0.03] dark:bg-white/[0.03] text-text-muted/50 hover:text-text-muted hover:bg-black/[0.06] dark:hover:bg-white/[0.06]"
-                  }`}
-                  title={t("codexPaidCreditsToggleTitle")}
-                  aria-pressed={codexPaidCreditsEnabled}
-                >
-                  <span className="material-symbols-outlined text-[13px]">payments</span>
-                  {t("codexPaidCreditsShort")}{" "}
-                  {codexPaidCreditsEnabled ? t("toggleOnShort") : t("toggleOffShort")}
-                </button>
-              </>
+              <CodexPaidCreditsToggle
+                enabled={connection.providerSpecificData?.allowPaidCredits === true}
+                onToggle={onToggleCodexPaidCredits}
+              />
             )}
             {/* #dario: upstream proxy routing selector. Gated on isClaude (the
                 real, built-in "claude" provider — the primary intended use

@@ -10,7 +10,10 @@ import {
 import { normalizeProviderSpecificData } from "../../src/lib/providers/requestDefaults.ts";
 import { updateProviderConnectionSchema } from "../../src/shared/validation/schemas.ts";
 import { parseCodexPaidCredits } from "../../src/lib/providers/codexPaidCredits.ts";
-import { toProviderLimitsCacheEntry } from "../../src/lib/usage/providerLimitsCache.ts";
+import {
+  mergeProviderLimitsCacheEntry,
+  toProviderLimitsCacheEntry,
+} from "../../src/lib/usage/providerLimitsCache.ts";
 
 const exhausted: QuotaInfo = {
   used: 100,
@@ -210,4 +213,39 @@ test("malformed balances cannot be mistaken for an unreported usable balance", (
       false
     );
   }
+});
+
+test("a failed refresh preserves credit-only dashboard data, including zero and blocked balances", () => {
+  for (const paidCredits of [
+    credits,
+    { ...credits, balance: 0 },
+    { ...credits, overageLimitReached: true },
+  ]) {
+    const previous = toProviderLimitsCacheEntry({ quotas: {}, paidCredits }, "manual");
+    const failed = toProviderLimitsCacheEntry({ message: "Rate limited" }, "scheduled");
+    assert.equal(mergeProviderLimitsCacheEntry("codex", failed, previous), previous);
+    const refreshed = toProviderLimitsCacheEntry(
+      { quotas: {}, paidCredits: { ...credits, balance: 0 } },
+      "manual"
+    );
+    assert.equal(mergeProviderLimitsCacheEntry("codex", refreshed, previous), refreshed);
+  }
+});
+
+test("preflight evaluates a subscription cutoff once and returns that decision", async () => {
+  registerQuotaFetcher("single-cutoff", async () => ({ used: 10, total: 100, percentUsed: 0.1 }));
+  let resolutions = 0;
+  const decision = await preflightQuota(
+    "single-cutoff",
+    "single",
+    {},
+    {
+      resolveMinRemainingPercent: () => {
+        resolutions++;
+        return 2;
+      },
+    }
+  );
+  assert.equal(decision.proceed, true);
+  assert.equal(resolutions, 1);
 });

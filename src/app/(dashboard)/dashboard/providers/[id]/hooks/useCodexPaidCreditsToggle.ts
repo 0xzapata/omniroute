@@ -1,16 +1,7 @@
 "use client";
 
-/**
- * useCodexPaidCreditsToggle — extracted from useProviderConnections (file-size
- * ratchet: useProviderConnections.ts is frozen; a new full handler pushed it
- * over the cap) to keep the god-file from growing, mirroring the
- * useReorderByAvailability precedent in this same directory.
- *
- * Owns the single-connection toggle for the opt-in "allow paid Codex
- * credits after subscription quota exhaustion" setting.
- */
-
-import { useRef } from "react";
+import { useRef, type Dispatch, type SetStateAction } from "react";
+import { extractApiErrorMessage } from "@/shared/http/apiErrorMessage";
 import type { ConnectionRowConnection } from "../components/ConnectionRow";
 import { providerText, type ProviderMessageTranslator } from "../providerCredentialText";
 
@@ -22,24 +13,18 @@ interface CodexPaidCreditsToggleNotifier {
 
 export interface UseCodexPaidCreditsToggleParams {
   connections: ConnectionRowConnection[];
-  setConnections: (
-    updater:
-      ConnectionRowConnection[] | ((prev: ConnectionRowConnection[]) => ConnectionRowConnection[])
-  ) => void;
+  setConnections: Dispatch<SetStateAction<ConnectionRowConnection[]>>;
   notify: CodexPaidCreditsToggleNotifier;
   t: ProviderMessageTranslator;
 }
 
-export interface UseCodexPaidCreditsToggleReturn {
-  handleToggleCodexPaidCredits: (connectionId: string, enabled: boolean) => Promise<void>;
-}
-
+/** Persist billing consent once per account while a save is pending. */
 export function useCodexPaidCreditsToggle({
   connections,
   setConnections,
   notify,
   t,
-}: UseCodexPaidCreditsToggleParams): UseCodexPaidCreditsToggleReturn {
+}: UseCodexPaidCreditsToggleParams) {
   const saving = useRef(new Set<string>());
   const handleToggleCodexPaidCredits = async (connectionId: string, enabled: boolean) => {
     if (saving.current.has(connectionId)) return;
@@ -59,12 +44,14 @@ export function useCodexPaidCreditsToggle({
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         notify.error(
-          data.error ||
+          extractApiErrorMessage(
+            data,
             providerText(
               t,
               "failedUpdateCodexPaidCredits",
               "Failed to update Codex paid-credit policy"
             )
+          )
         );
         return;
       }

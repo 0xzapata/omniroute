@@ -360,31 +360,8 @@ export function buildCodexUsageQuotas(dataValue: unknown): {
   return {
     rateLimit,
     quotas,
-    ...buildOptionalUsageFields({ bankedResetCredits, paidCredits, rateLimitReachedType }),
-  };
-}
-
-/**
- * Merges the optional top-level fields of buildCodexUsageQuotas' return value,
- * isolated so the presence-check ternaries don't count against the parent
- * function's cyclomatic/cognitive complexity ratchet.
- */
-function buildOptionalUsageFields(fields: {
-  bankedResetCredits: number | undefined;
-  paidCredits: CodexPaidCredits | undefined;
-  rateLimitReachedType: string | undefined;
-}): {
-  bankedResetCredits?: number;
-  paidCredits?: CodexPaidCredits;
-  rateLimitReachedType?: string;
-} {
-  return {
-    ...(fields.bankedResetCredits !== undefined
-      ? { bankedResetCredits: fields.bankedResetCredits }
-      : {}),
-    ...(fields.paidCredits ? { paidCredits: fields.paidCredits } : {}),
-    ...(fields.rateLimitReachedType !== undefined
-      ? { rateLimitReachedType: fields.rateLimitReachedType }
-      : {}),
+    bankedResetCredits,
+    paidCredits,
+    rateLimitReachedType,
   };
 }

@@ -1,6 +1,5 @@
 import { randomUUID } from "crypto";
 import { isCodexPaidCreditsEnabled } from "@/lib/providers/codexPaidCredits";
-import { hasCodexCreditOptIn } from "@/lib/providers/quotaCutoffOptIns";
 import { nodeTypeFromId } from "@/lib/db/providerNodeSelect";
 import { extractGoogApiKeyHeader } from "./googApiKeyAuth.ts";
 import { describeUpstreamFailure } from "@/shared/utils/upstreamError";
@@ -2286,14 +2285,19 @@ export async function getProviderCredentialsWithQuotaPreflight(
     // Otherwise the resolver would return the factory default for every
     // window, and a near-exhausted account would still be caught by the
     // normal 429 → cooldown path.
-    // Explicit per-connection opt-out always wins over global/provider defaults.
+    // Paid-credit consent requires preflight even when the legacy flag is off.
     // isQuotaPreflightEnabled is strict-=== true (back-compat), so it returns
     // false for both "not set" and "explicit false" — we need an explicit check
     // here to distinguish them.
-    const legacyForceDisable =
-      (credentials as { providerSpecificData?: Record<string, unknown> }).providerSpecificData
-        ?.quotaPreflightEnabled === false;
-    if (legacyForceDisable && !hasCodexCreditOptIn(provider, credentials, requestedModel)) {
+    const providerSpecificData = (credentials as { providerSpecificData?: Record<string, unknown> })
+      .providerSpecificData;
+    const paidCreditsEnabled = isCodexPaidCreditsEnabled(
+      provider,
+      providerSpecificData,
+      requestedModel
+    );
+    const legacyForceDisable = providerSpecificData?.quotaPreflightEnabled === false;
+    if (legacyForceDisable && !paidCreditsEnabled) {
       const committed = await commitLease();
       if (committed === null) continue;
       return committed;
@@ -2305,7 +2309,7 @@ export async function getProviderCredentialsWithQuotaPreflight(
     if (
       !hasConnectionOverrides &&
       !providerHasDefaults &&
-      !(legacyForceEnable || hasCodexCreditOptIn(provider, credentials, requestedModel)) &&
+      !(legacyForceEnable || paidCreditsEnabled) &&
       !globalCutoffEnabled &&
       !globalDefaultIsRestrictive
     ) {

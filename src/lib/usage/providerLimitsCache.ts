@@ -12,7 +12,9 @@ function isRecord(value: unknown): value is JsonRecord {
 }
 
 function hasUsableCachedData(cache: ProviderLimitsCacheEntry | null | undefined): boolean {
-  return Boolean(cache?.billing || (cache?.quotas && Object.keys(cache.quotas).length > 0));
+  return Boolean(
+    cache?.paidCredits || cache?.billing || (cache?.quotas && Object.keys(cache.quotas).length > 0)
+  );
 }
 
 export function toProviderLimitsCacheEntry(

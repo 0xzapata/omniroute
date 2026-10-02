@@ -356,7 +356,11 @@ import {
   resolveConnectionTimeoutMs,
 } from "./chatCore/upstreamTimeouts.ts";
 import { getModelNormalizeToolCallId, getModelPreserveOpenAIDeveloperRole } from "@/lib/db/models";
-import { getProviderCredentials, extractSessionAffinityKey } from "@/sse/services/auth";
+import {
+  getProviderCredentials,
+  getProviderCredentialsWithQuotaPreflight,
+  extractSessionAffinityKey,
+} from "@/sse/services/auth";
 import { assertExclusiveConnectionLeaseFence } from "@/lib/db/exclusiveConnectionLeases";
 import { deleteSessionAccountAffinity } from "@/lib/db/sessionAccountAffinity";
 import { getCacheControlSettings } from "@/lib/cacheControlSettings";
@@ -3327,8 +3331,8 @@ export async function handleChatCore({
                   }
                 }
 
-                // Fetch next available codex connection (excluding all previously failed ones)
-                const nextCreds = await getProviderCredentials(
+                // Reapply dispatch preflight to every account selected during rotation.
+                const nextCreds = await getProviderCredentialsWithQuotaPreflight(
                   "codex",
                   null,
                   null,
@@ -3338,18 +3342,12 @@ export async function handleChatCore({
                   }
                 ).catch(() => null);
 
-                if (!nextCreds || nextCreds.allRateLimited) {
+                if (!nextCreds?.connectionId) {
                   log?.warn?.("CODEX_FAILOVER", "No more codex accounts available — returning 429");
-                  if (stream) {
-                    releaseAccountSemaphore();
-                    return {
-                      ...res,
-                      _executionCredentials: execCreds,
-                    };
-                  }
+                  if (stream) releaseAccountSemaphore();
                   return {
                     ...res,
-                    _accountSemaphoreRelease: releaseAccountSemaphore,
+                    ...(stream ? {} : { _accountSemaphoreRelease: releaseAccountSemaphore }),
                     _executionCredentials: execCreds,
                   };
                 }

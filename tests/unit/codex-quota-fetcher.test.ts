@@ -287,6 +287,12 @@ test("credit-only accounts require consent and usable credits without inventing 
   const quota = await fetchCodexQuota("credit-only-account", { accessToken: "test-token" });
   assert.ok(quota);
   assert.deepEqual(quota.windows, {});
+  assert.equal(
+    quota.window5h.percentUsed,
+    1,
+    "unknown subscription windows must not advertise headroom"
+  );
+  assert.equal(quota.window7d.percentUsed, 1);
   assert.equal(evaluateQuotaCutoff(quota, undefined, { provider: "codex" }).proceed, false);
   assert.equal(
     evaluateQuotaCutoff(quota, undefined, {

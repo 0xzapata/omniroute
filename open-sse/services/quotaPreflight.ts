@@ -261,8 +261,7 @@ function quotaPercentCutoffResult(
 }
 
 /**
- * Opt-in paid-credits short-circuit for evaluateQuotaCutoff, isolated so the
- * caller's cyclomatic/cognitive complexity stays under the ratchet limit.
+ * Allow paid continuation only with explicit consent and usable credit data.
  * Returns null when the gate does not apply (caller falls through to the
  * normal subscription-quota evaluation).
  */
@@ -284,9 +283,7 @@ function resolveCodexPaidCreditsGate(
 }
 
 /**
- * Per-window cutoff branch of evaluateQuotaCutoff, isolated so the caller's
- * cyclomatic complexity stays under the ratchet limit. Returns null when the
- * quota has no per-window data (caller falls through to the legacy path).
+ * Evaluate model-scoped subscription windows; null selects the aggregate fallback.
  */
 function windowedQuotaCutoffResult(
   quota: QuotaInfo,
@@ -412,46 +409,20 @@ export async function preflightQuota(
     );
     return decision;
   }
-  if (
-    (windows && Object.keys(windows).length > 0) ||
-    (isCodexPaidCreditsEnabled(provider, connection.providerSpecificData, requestedModel) &&
-      hasCodexPaidCredits(quota.paidCredits))
-  ) {
-    return decision;
-  }
+  if (windows && Object.keys(windows).length > 0) return decision;
 
-  // Legacy single-signal path for fetchers that don't expose per-window data.
-  const minRemainingPercent = resolveOrDefault(
-    thresholds?.resolveMinRemainingPercent,
-    null,
-    DEFAULT_MIN_REMAINING_PERCENT
-  );
+  // Legacy fetchers expose only aggregate usage. This is diagnostic only:
+  // evaluateQuotaCutoff owns every decision, including paid-credit continuation.
   const warnRemainingPercent = resolveOrDefault(
     thresholds?.resolveWarnRemainingPercent,
     null,
     DEFAULT_WARN_REMAINING_PERCENT
   );
-
-  const { percentUsed } = quota;
-  const remainingPercent = remainingPercentFrom(percentUsed);
-
-  if (isRemainingAtOrBelowThreshold(remainingPercent, minRemainingPercent)) {
-    console.info(
-      `[QuotaPreflight] ${provider}/${connectionId}: ${remainingPercent.toFixed(1)}% remaining — switching (cutoff ${minRemainingPercent}%)`
-    );
-    return {
-      proceed: false,
-      reason: "quota_exhausted",
-      quotaPercent: percentUsed,
-      resetAt: quota.resetAt ?? null,
-    };
-  }
-
+  const remainingPercent = remainingPercentFrom(quota.percentUsed);
   if (isRemainingAtOrBelowThreshold(remainingPercent, warnRemainingPercent)) {
     console.warn(
       `[QuotaPreflight] ${provider}/${connectionId}: ${remainingPercent.toFixed(1)}% remaining — approaching cutoff`
     );
   }
-
-  return { proceed: true, quotaPercent: percentUsed };
+  return decision;
 }

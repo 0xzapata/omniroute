@@ -518,8 +518,6 @@ export function useProviderConnections(
     }
   };
 
-  // Codex paid-credits toggle — extracted to its own hook (see
-  // useCodexPaidCreditsToggle.ts) to keep this file under the file-size cap.
   const { handleToggleCodexPaidCredits } = useCodexPaidCreditsToggle({
     connections,
     setConnections,
