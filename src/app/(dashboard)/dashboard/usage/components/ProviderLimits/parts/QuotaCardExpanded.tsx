@@ -27,6 +27,8 @@ import {
   sortQuotasByWindow,
 } from "../quotaParsing";
 import KiloPassMeter from "./KiloPassMeter";
+import type { CodexPaidCredits } from "@/lib/providers/codexPaidCredits";
+import CodexCreditDetails from "./CodexCreditDetails";
 
 const CURRENCY_SYMBOLS: Record<string, string> = {
   USD: "$",
@@ -141,6 +143,8 @@ interface Props {
   error: string | null;
   message?: string | null;
   billing?: ProviderBillingStatus | null;
+  paidCredits?: CodexPaidCredits;
+  allowPaidCredits?: boolean;
   refreshedAt?: string;
   hasStaleData: boolean;
   onRefresh: () => void;
@@ -326,6 +330,8 @@ export default function QuotaCardExpanded({
   error,
   message,
   billing,
+  paidCredits,
+  allowPaidCredits = false,
   refreshedAt,
   hasStaleData,
   onRefresh,
@@ -406,6 +412,9 @@ export default function QuotaCardExpanded({
 
       {isProviderBillingProvider(providerId) && billing && (
         <ProviderBillingDetails billing={billing} />
+      )}
+      {providerId === "codex" && (
+        <CodexCreditDetails credits={paidCredits} enabled={allowPaidCredits} />
       )}
 
       {hiddenQuotaRows.length > 0 && (

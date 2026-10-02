@@ -155,6 +155,7 @@ export default function EditConnectionModal({
       provider === "claude"
         ? isClaudeExtraUsageBlockEnabled(provider, connectionProviderSpecificData)
         : false,
+    allowPaidCredits: connectionProviderSpecificData?.allowPaidCredits === true,
     passthroughModels: connectionProviderSpecificData?.passthroughModels === true,
     disableCooling: connectionProviderSpecificData?.disableCooling === true,
     importFreeModelsOnly: connectionProviderSpecificData?.importFreeModelsOnly === true,
@@ -379,11 +380,7 @@ export default function EditConnectionModal({
         quotaPerUnit: existingQuotaPerUnit,
         glmOrganizationId: existingGlmOrganizationId,
         glmProjectId: existingGlmProjectId,
-        // Console-session credentials are stripped from API responses
-        // (sanitizeProviderSpecificDataForResponse), so there is nothing to
-        // round-trip: start empty and let "blank keeps the stored value" hold —
-        // the quota-scraping assign skips empty fields and the PUT merge
-        // preserves keys the payload does not carry.
+        // Empty fields preserve console credentials stripped from API responses.
         ollamaCloudUsageCookie: "",
         alibabaConsoleCookie: "",
         qwenCloudCookie: "",
@@ -401,6 +398,7 @@ export default function EditConnectionModal({
           effectiveProvider,
           connection.providerSpecificData
         ),
+        allowPaidCredits: connection.providerSpecificData?.allowPaidCredits === true,
         passthroughModels: connection?.providerSpecificData?.passthroughModels === true,
         disableCooling: connection?.providerSpecificData?.disableCooling === true,
         importFreeModelsOnly: connection?.providerSpecificData?.importFreeModelsOnly === true,
@@ -701,6 +699,7 @@ export default function EditConnectionModal({
           updates.providerSpecificData.blockExtraUsage = formData.blockExtraUsage;
         }
         if (isCodex) {
+          updates.providerSpecificData.allowPaidCredits = formData.allowPaidCredits;
           updates.providerSpecificData.requestDefaults = {
             reasoningEffort: formData.codexReasoningEffort,
             ...(formData.codexServiceTier !== "default"
@@ -838,6 +837,7 @@ export default function EditConnectionModal({
             serviceTier={formData.codexServiceTier}
             fingerprintMode={formData.codexFingerprintMode}
             openaiStoreEnabled={formData.codexOpenaiStoreEnabled}
+            allowPaidCredits={formData.allowPaidCredits}
             showFingerprintMode={isOAuth}
             onChange={(patch) => setFormData({ ...formData, ...patch })}
           />

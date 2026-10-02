@@ -1,0 +1,1 @@
+- Inline local `$ref`/`$defs` in tool schemas for OpenCode Go Responses targets and cut self-referential cycles into opaque objects, so recursive MCP tool schemas (Codex desktop gmail `_create_draft`/`_send_email`) no longer 400 with "Recursive JSON schemas are not currently supported".

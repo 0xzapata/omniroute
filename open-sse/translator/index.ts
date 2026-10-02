@@ -19,12 +19,15 @@ import {
   injectEmptyReasoningContentForToolCalls,
   injectOptionalEnumOmissionForTools,
   injectOptionalStringOmissionForTools,
+  strictCompleteToolSearchSchemas,
+  inlineRecursiveSchemaRefsForTools,
   sanitizeToolDescriptions,
 } from "./helpers/schemaCoercion.ts";
 import { getRequestTranslator, getResponseTranslator } from "./registry.ts";
 import { bootstrapTranslatorRegistry } from "./bootstrap.ts";
 import { hasThinkingConfig, normalizeThinkingConfig } from "../services/provider.ts";
 import { applyThinkingBudget } from "../services/thinkingBudget.ts";
+import { isOpencodeGoProvider } from "../services/opencodeReasoningSanitizer.ts";
 import { applyReasoningRuleDirective } from "@/lib/reasoningRouting/policy";
 import { getModelPreserveVideoUrl } from "@/lib/db/models/modelPreserveVideoUrl";
 import { getResolvedModelCapabilities, supportsReasoning } from "../services/modelCapabilities.ts";
@@ -87,13 +90,20 @@ function normalizeResponsesInputItem(item) {
 // that promotion never runs on.
 function promoteStrayReasoningEffort(body) {
   if (!body || typeof body !== "object") return body;
-  if (body.reasoning !== undefined) return body;
+  // The Responses API has no Claude-shaped `thinking` field. The thinking-budget
+  // service (custom/adaptive modes) writes one for any thinking-capable model before
+  // the target lane is known; strict Responses upstreams (OpenCode Go muse-spark,
+  // Heimdall 2026-09-15) reject it with 400 "unknown parameter `thinking`".
+  delete body.thinking;
   if (body.reasoning_effort === undefined) return body;
-
-  const effort = normalizeResponsesReasoningEffort(body.reasoning_effort);
-  if (effort) {
-    body.reasoning = { effort };
+  if (body.reasoning === undefined) {
+    const effort = normalizeResponsesReasoningEffort(body.reasoning_effort);
+    if (effort) {
+      body.reasoning = { effort };
+    }
   }
+  // Either promoted above or an explicit `reasoning` already wins — never leave the
+  // Chat-shaped top-level key behind (400 "unknown parameter `reasoning_effort`").
   delete body.reasoning_effort;
   return body;
 }
@@ -615,6 +625,10 @@ export function translateRequest(
     result.tools = sanitizeToolDescriptions(result.tools);
     if (targetFormat === FORMATS.OPENAI_RESPONSES) {
       result.tools = injectOptionalEnumOmissionForTools(result.tools);
+      if (isOpencodeGoProvider(normalizedProvider)) {
+        result.tools = strictCompleteToolSearchSchemas(result.tools);
+        result.tools = inlineRecursiveSchemaRefsForTools(result.tools);
+      }
     }
   }
 

@@ -20,6 +20,7 @@ import { normalizeCodexLimitPolicy, providerText, ERROR_TYPE_LABELS } from "../p
 import { getCodexPlanLabel } from "../codexPlanLabel";
 import type { CodexAccountPoolProjection } from "@omniroute/open-sse/services/codexAccount/index.ts";
 import CodexAccountDetails from "./CodexAccountDetails";
+import CodexPaidCreditsToggle from "./CodexPaidCreditsToggle";
 import ProviderQuotaVisibilityToggle from "./ProviderQuotaVisibilityToggle";
 
 // ---------------------------------------------------------------------------
@@ -70,6 +71,7 @@ export interface ConnectionRowProps {
   onToggleRateLimit: (enabled?: boolean) => void;
   onToggleQuotaVisibility?: (visible: boolean) => void;
   onToggleClaudeExtraUsage?: (enabled?: boolean) => void;
+  onToggleCodexPaidCredits?: (enabled: boolean) => void;
   onToggleAutoSync?: (enabled: boolean) => void;
   onToggleCodex5h?: (enabled?: boolean) => void;
   onToggleCodexWeekly?: (enabled?: boolean) => void;
@@ -366,6 +368,7 @@ export default function ConnectionRow({
   onToggleRateLimit,
   onToggleQuotaVisibility,
   onToggleClaudeExtraUsage,
+  onToggleCodexPaidCredits,
   onToggleAutoSync,
   onToggleCodex5h,
   onToggleCodexWeekly,
@@ -416,8 +419,7 @@ export default function ConnectionRow({
   // #11497: cookie rows with a decodable JWT credential carry a persisted
   // cookieExpiresAt — feed it into the same countdown badge OAuth rows use.
   const cookieExpiresAt = readCookieExpiresAt(connection.providerSpecificData);
-  const effectiveExpiresAt =
-    connection.tokenExpiresAt || connection.expiresAt || cookieExpiresAt;
+  const effectiveExpiresAt = connection.tokenExpiresAt || connection.expiresAt || cookieExpiresAt;
   const hasExpirySource = isOAuth || Boolean(cookieExpiresAt);
   const getTokenMinsLeft = () => {
     if (!hasExpirySource || !effectiveExpiresAt) return null;
@@ -684,6 +686,12 @@ export default function ConnectionRow({
                   {!claudeBlockExtraUsageEnabled ? t("toggleOnShort") : t("toggleOffShort")}
                 </button>
               </>
+            )}
+            {isCodex && connection.provider === "codex" && onToggleCodexPaidCredits && (
+              <CodexPaidCreditsToggle
+                enabled={connection.providerSpecificData?.allowPaidCredits === true}
+                onToggle={onToggleCodexPaidCredits}
+              />
             )}
             {/* #dario: upstream proxy routing selector. Gated on isClaude (the
                 real, built-in "claude" provider — the primary intended use

@@ -5041,6 +5041,13 @@
     }
   },
   "providers": {
+    "codexPaidCreditsShort": "Tín dụng bổ sung",
+    "codexPaidCreditsToggleTitle": "Cho phép sử dụng tín dụng trả phí của Codex sau khi hết hạn mức gói đăng ký (có thể phát sinh phí bổ sung)",
+    "codexPaidCreditsEnabled": "Đã bật tín dụng trả phí của Codex (có thể phát sinh phí bổ sung)",
+    "codexPaidCreditsDisabled": "Đã tắt tín dụng trả phí của Codex",
+    "failedUpdateCodexPaidCredits": "Không thể cập nhật chính sách tín dụng trả phí của Codex",
+    "allowCodexPaidCreditsLabel": "Cho phép tín dụng trả phí của Codex",
+    "allowCodexPaidCreditsDescription": "Cho phép tài khoản này sử dụng tín dụng trả phí sau khi hạn mức gói đăng ký đạt đến ngưỡng cắt. Yêu cầu có tín dụng khả dụng do OpenAI báo cáo; có thể phát sinh phí. Giới hạn Spark và thời gian chờ (cooldown) từ upstream vẫn được áp dụng. Tính khả dụng của tín dụng được kiểm tra ngay cả khi tính năng preflight hạn mức bị tắt.",
     "title": "Nhà cung cấp",
     "Account Deactivated": "Tài khoản đã bị vô hiệu hóa",
     "allProviders": "Tất cả nhà cung cấp",
@@ -9249,6 +9256,15 @@
     "streamTransformFailed": "Không thể chuyển đổi luồng"
   },
   "usage": {
+    "codexCreditUnknown": "Credit availability unknown",
+    "codexCreditSpendingLimit": "Spending limit reached",
+    "codexCreditAvailable": "Credits available",
+    "codexCreditUnavailable": "No usable credits",
+    "codexCreditBalanceUnknown": "Balance not reported",
+    "codexCreditRoutingEnabled": "Paid-credit routing enabled",
+    "codexCreditRoutingDisabled": "Paid-credit routing disabled",
+    "codexPaidCreditsLabel": "Tín dụng trả phí Codex",
+    "codexPaidCreditsUnlimited": "Không giới hạn",
     "title": "Mức sử dụng",
     "grokExtraUsageCredits": "Tín dụng sử dụng bổ sung",
     "grokAutoTopUp": "Tự động nạp thêm",

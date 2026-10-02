@@ -43,6 +43,96 @@ test.after(() => {
   fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
+test("paid-credit account passes exhausted subscription snapshots and still falls back on credit exhaustion", async () => {
+  const quotaCache = await import("../../src/domain/quotaCache.ts");
+  const { registerQuotaFetcher } = await import("../../open-sse/services/quotaPreflight.ts");
+  const paid = await seedCodexConnection({
+    name: "paid-business",
+    accessToken: "paid-access",
+    priority: 1,
+    providerSpecificData: { allowPaidCredits: true, quotaPreflightEnabled: false },
+  });
+  const sibling = await seedCodexConnection({
+    name: "subscription-sibling",
+    accessToken: "sibling-access",
+    priority: 2,
+    providerSpecificData: { quotaPreflightEnabled: true },
+  });
+  const resetAt = futureIso(120_000);
+  quotaCache.setQuotaCache(paid.id, "codex", {
+    session: { used: 100, total: 100, remainingPercentage: 0, resetAt },
+  });
+  let available = true;
+  const calls: string[] = [];
+  registerQuotaFetcher("codex", async (id) => {
+    calls.push(id);
+    const percentUsed = id === paid.id ? 1 : 0.2;
+    return {
+      used: percentUsed * 100,
+      total: 100,
+      percentUsed,
+      resetAt,
+      windows: { session: { percentUsed, resetAt } },
+      paidCredits:
+        id === paid.id
+          ? {
+              hasCredits: available,
+              unlimited: false,
+              overageLimitReached: !available,
+              balance: null,
+            }
+          : undefined,
+    };
+  });
+  try {
+    const selected = await auth.getProviderCredentialsWithQuotaPreflight(
+      "codex",
+      null,
+      null,
+      "gpt-5.5"
+    );
+    assert.equal(selected.connectionId, paid.id);
+    assert.deepEqual(
+      calls,
+      [paid.id],
+      "paid-credit consent requires fresh preflight despite legacy opt-out"
+    );
+    selected.releaseOAuthSession?.();
+    available = false;
+    calls.length = 0;
+    const next = await auth.getProviderCredentialsWithQuotaPreflight(
+      "codex",
+      null,
+      null,
+      "gpt-5.5"
+    );
+    assert.equal(next.connectionId, sibling.id);
+    assert.deepEqual(calls, [paid.id, sibling.id]);
+    next.releaseOAuthSession?.();
+  } finally {
+    quotaCache.__clearForTests();
+  }
+});
+
+test("paid-credit consent does not bypass a real upstream connection cooldown", async () => {
+  const paid = await seedCodexConnection({
+    name: "paid-upstream-cooldown",
+    accessToken: "paid-cooldown-access",
+    priority: 1,
+    rateLimitedUntil: futureIso(120_000),
+    testStatus: "unavailable",
+    errorCode: 429,
+    providerSpecificData: { allowPaidCredits: true },
+  });
+  const selected = await auth.getProviderCredentialsWithQuotaPreflight(
+    "codex",
+    null,
+    paid.id,
+    "gpt-5.5"
+  );
+  assert.equal(selected.allRateLimited, true);
+});
+
 test("Codex Spark preflight cooldown leaves normal models on the same parent selectable", async () => {
   const resetAt = futureIso(120_000);
   const connection = await seedCodexConnection({
@@ -308,4 +398,72 @@ test("markAccountUnavailable keeps model-less Codex 429 state off the parent", a
   assert.equal(updated.errorCode, parentBefore.errorCode);
   assert.equal(updated.backoffLevel, parentBefore.backoffLevel);
   assert.deepEqual(updated.providerSpecificData, parentBefore.providerSpecificData);
+});
+
+test("combo cutoff and auto candidates retain credit-enabled accounts at zero subscription quota", async () => {
+  const { registerQuotaFetcher } = await import("../../open-sse/services/quotaPreflight.ts");
+  const { resolveQuotaExhaustionCutoffForTarget } =
+    await import("../../open-sse/services/combo/quotaExhaustionCutoff.ts");
+  const { resolveResetWindowConfig } =
+    await import("../../open-sse/services/combo/quotaScoring.ts");
+  const { resolveResilienceSettings } = await import("../../src/lib/resilience/settings.ts");
+  const { buildAutoCandidates } = await import("../../open-sse/services/combo.ts");
+  const { expandTargetsByQuotaAwareConnections } =
+    await import("../../open-sse/services/combo/quotaStrategies.ts");
+  const quotaCache = await import("../../src/domain/quotaCache.ts");
+  const paid = await seedCodexConnection({ providerSpecificData: { allowPaidCredits: true } });
+  const noConsent = await seedCodexConnection({ providerSpecificData: {} });
+  const blocked = await seedCodexConnection({ providerSpecificData: { allowPaidCredits: true } });
+  const settings = resolveResilienceSettings({
+    resilienceSettings: { quotaPreflight: { enabled: true } },
+  });
+  const config = resolveResetWindowConfig(null);
+  registerQuotaFetcher("codex", async (id) => ({
+    used: 100,
+    total: 100,
+    percentUsed: 1,
+    limitReached: true,
+    windows: { session: { percentUsed: 1 } },
+    paidCredits: {
+      hasCredits: true,
+      unlimited: false,
+      balance: 12.5,
+      overageLimitReached: id === blocked.id,
+    },
+  }));
+  const targets = [paid, noConsent, blocked].map((connection) => ({
+    kind: "model" as const,
+    stepId: connection.id,
+    executionKey: connection.id,
+    modelStr: "codex/gpt-5.5",
+    provider: "codex",
+    providerId: null,
+    connectionId: connection.id,
+  }));
+  for (const connection of [paid, noConsent, blocked]) {
+    quotaCache.setQuotaCache(connection.id, "codex", {
+      session: { remainingPercentage: 0, resetAt: futureIso() },
+    });
+    const decision = await resolveQuotaExhaustionCutoffForTarget(
+      "codex",
+      connection.id,
+      settings,
+      config,
+      "credits-combo",
+      {},
+      "gpt-5.5"
+    );
+    assert.equal(decision.blocked, connection.id !== paid.id);
+  }
+  const candidates = await buildAutoCandidates(targets, "credits-auto", null, config, settings);
+  assert.equal(candidates.find((c) => c.connectionId === paid.id)?.quotaCutoffBlocked, false);
+  assert.equal(candidates.find((c) => c.connectionId === noConsent.id)?.quotaCutoffBlocked, true);
+  assert.equal(candidates.find((c) => c.connectionId === blocked.id)?.quotaCutoffBlocked, true);
+  const { expandedTargets: expanded } = await expandTargetsByQuotaAwareConnections(
+    targets,
+    "credits-expansion",
+    {}
+  );
+  assert.ok(expanded.some((t) => t.connectionId === paid.id));
+  assert.ok(!expanded.some((t) => t.connectionId === noConsent.id));
 });

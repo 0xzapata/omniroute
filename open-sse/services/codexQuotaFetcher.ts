@@ -26,6 +26,7 @@ import { registerQuotaFetcher, registerQuotaWindows, type QuotaInfo } from "./qu
 import { registerMonitorFetcher } from "./quotaMonitor.ts";
 import { throttleQuotaFetch } from "./quotaFetchThrottle.ts";
 import { getCodexBackendIdentityHeaders } from "../config/codexClient.ts";
+import { parseCodexPaidCredits } from "@/lib/providers/codexPaidCredits";
 
 /**
  * Stable identifiers for Codex's quota windows. These match the quota keys
@@ -410,17 +411,20 @@ function parseCodexUsageResponse(
   );
   if (!selectedRateLimit) return null;
 
-  // Require at least one window to be present for the requested scope.
+  const paidCredits = parseCodexPaidCredits(obj.credits, obj);
+  // Credit-only accounts may omit subscription windows. Spark stays isolated.
   const { primary: parsedPrimary, secondary: parsedSecondary } =
     getCodexRateLimitWindows(selectedRateLimit);
-  if (!parsedPrimary && !parsedSecondary) return null;
+  const hasWindows = Boolean(parsedPrimary || parsedSecondary);
+  if (!hasWindows && (useSparkWindows || !paidCredits)) return null;
 
-  const window5h = parsedPrimary ?? { percentUsed: 0, resetAt: null };
-  const window7d = parsedSecondary ?? { percentUsed: 0, resetAt: null };
-  const worstPercentUsed = Math.max(window5h.percentUsed, window7d.percentUsed);
-  const limitReached = Boolean(
-    selectedRateLimit["limit_reached"] ?? selectedRateLimit["limitReached"]
-  );
+  // Credit-only accounts have no subscription headroom to advertise to scorers.
+  const missingWindow = { percentUsed: hasWindows ? 0 : 1, resetAt: null };
+  const window5h = parsedPrimary ?? missingWindow;
+  const window7d = parsedSecondary ?? missingWindow;
+  const worstPercentUsed = hasWindows ? Math.max(window5h.percentUsed, window7d.percentUsed) : 1;
+  const limitReached =
+    !hasWindows || Boolean(selectedRateLimit["limit_reached"] ?? selectedRateLimit["limitReached"]);
 
   const windows: Record<string, { percentUsed: number; resetAt: string | null }> = {};
   assignCodexWindows(windows, selectedRateLimit, {
@@ -463,6 +467,7 @@ function parseCodexUsageResponse(
     limitReached,
     // Banked reset credits (display-only, eligibility-gated — issue #5199).
     ...(bankedResetCredits !== undefined ? { bankedResetCredits } : {}),
+    ...(paidCredits ? { paidCredits } : {}),
     ...(rateLimitReachedType !== undefined ? { rateLimitReachedType } : {}),
   };
 }

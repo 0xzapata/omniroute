@@ -1,3 +1,4 @@
+import { parseCodexPaidCredits } from "@/lib/providers/codexPaidCredits";
 import type { ProviderLimitsCacheEntry } from "@/lib/db/providerLimits";
 import { sanitizeProviderBillingStatus } from "@/shared/utils/providerBilling";
 import { GROK_BUILD_ADDITIONAL_CREDITS_URL } from "@/shared/utils/grokBilling";
@@ -11,7 +12,9 @@ function isRecord(value: unknown): value is JsonRecord {
 }
 
 function hasUsableCachedData(cache: ProviderLimitsCacheEntry | null | undefined): boolean {
-  return Boolean(cache?.billing || (cache?.quotas && Object.keys(cache.quotas).length > 0));
+  return Boolean(
+    cache?.paidCredits || cache?.billing || (cache?.quotas && Object.keys(cache.quotas).length > 0)
+  );
 }
 
 export function toProviderLimitsCacheEntry(
@@ -27,6 +30,7 @@ export function toProviderLimitsCacheEntry(
     fetchedAt,
     source,
     bankedResetCredits: Number.isFinite(bankedResetCredits) ? bankedResetCredits : undefined,
+    paidCredits: parseCodexPaidCredits(usage.paidCredits),
     billing: sanitizeProviderBillingStatus(usage.billing),
   };
 }

@@ -80,14 +80,27 @@ export const OPENAI_CHAT_ERROR_FRAME = ENCODER.encode(
 // the `type` field INSIDE the JSON payload (matching every other Responses API
 // event — response.output_text.delta, response.completed, etc.), not an SSE
 // `event:` field.
-export const OPENAI_RESPONSES_ERROR_FRAME = ENCODER.encode(
-  `data: ${JSON.stringify({
-    type: "error",
-    code: null,
-    message: "Upstream stream failed before completion.",
-    param: null,
-  })}\n\n`
-);
+// Codex (codex-rs `process_responses_event`) only treats `response.failed` as a
+// terminal error; a top-level `{"type":"error"}` falls into its unhandled-event
+// branch and a payload with no `type` fails to parse, so both end in the opaque
+// "stream closed before response.completed" instead of the real upstream message.
+export function responsesFailedFrame(bodyText: string): string {
+  let code: string | null = null;
+  let message = "Upstream stream failed before completion.";
+  try {
+    const parsed = JSON.parse(bodyText);
+    const error = parsed?.error ?? parsed;
+    if (typeof error?.message === "string" && error.message.trim()) message = error.message;
+    if (typeof error?.code === "string") code = error.code;
+  } catch {
+    /* non-JSON body: keep the generic message */
+  }
+  return `data: ${JSON.stringify({
+    type: "response.failed",
+    response: { object: "response", status: "failed", error: { code, message } },
+  })}\n\n`;
+}
+export const OPENAI_RESPONSES_ERROR_FRAME = ENCODER.encode(responsesFailedFrame(""));
 
 export type EarlyStreamKeepaliveOptions = {
   /** Wait this long for the handler before committing to a keepalive stream. */
@@ -126,6 +139,13 @@ export type EarlyStreamKeepaliveOptions = {
    * instead — see the doc comment on the default ERROR_FRAME above for why.
    */
   errorFrame?: Uint8Array;
+  /**
+   * Formats a late non-SSE upstream body (e.g. a JSON 5xx that arrived after the
+   * slow path committed to 200) into the in-band SSE frame. Defaults to `data: <body>`
+   * (or `event: error` for Anthropic-style errorFrames). The Responses route passes
+   * `responsesFailedFrame` so Codex sees a `response.failed` it can act on.
+   */
+  frameErrorBody?: (bodyText: string) => string;
   /**
    * Request correlation id, threaded from the route's own handleChat(...,
    * correlationId) call. When set, every byte this wrapper writes to the
@@ -323,9 +343,11 @@ export async function withEarlyStreamKeepalive(
             const dataLine =
               text.trim() ||
               JSON.stringify({ error: { message: "stream_error", type: "stream_error" } });
-            const framed = errorFrameUsesNamedEvent
-              ? `event: error\ndata: ${dataLine}\n\n`
-              : `data: ${dataLine}\n\n`;
+            const framed = options.frameErrorBody
+              ? options.frameErrorBody(dataLine)
+              : errorFrameUsesNamedEvent
+                ? `event: error\ndata: ${dataLine}\n\n`
+                : `data: ${dataLine}\n\n`;
             const framedBytes = ENCODER.encode(framed);
             controller.enqueue(framedBytes);
             recordClientBytes(framedBytes);

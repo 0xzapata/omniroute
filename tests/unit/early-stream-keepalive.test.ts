@@ -15,6 +15,7 @@ import {
   OPENAI_STARTUP_FRAME,
   OPENAI_CHAT_ERROR_FRAME,
   OPENAI_RESPONSES_ERROR_FRAME,
+  responsesFailedFrame,
 } from "../../open-sse/utils/earlyStreamKeepalive.ts";
 import { takeEarlyKeepaliveBytes } from "../../open-sse/utils/earlyKeepaliveByteBuffer.ts";
 import { OPENAI_RESPONSES_IN_PROGRESS_FRAME } from "../../open-sse/utils/sseHeartbeat.ts";
@@ -338,9 +339,56 @@ test("OPENAI_RESPONSES_ERROR_FRAME is a plain data: line discriminated by type, 
   const payload = JSON.parse(decoded.replace(/^data: /, "").trim());
   assert.equal(
     payload.type,
-    "error",
-    "Responses API events are discriminated by a `type` field inside the JSON payload"
+    "response.failed",
+    "codex-rs only treats response.failed as terminal; a bare type:error is an unhandled event"
   );
+  assert.equal(payload.response.status, "failed");
+  assert.ok(payload.response.error.message);
+});
+
+// Heimdall incident 2026-09-15 (Codex desktop, muse-spark via opencode-go): the upstream
+// 500 arrived ~14s in, after the slow path had committed to 200, and was framed as a bare
+// `data: {"error":{...}}` line. codex-rs cannot parse that (no `type`) and, with no
+// response.failed / response.completed, surfaced only "stream closed before
+// response.completed". The Responses route must frame it as response.failed carrying
+// the real upstream message so the client can display and classify it.
+test("responsesFailedFrame wraps a late JSON upstream error as response.failed", async () => {
+  const upstream = JSON.stringify({
+    error: { message: "[opencode-go/muse] [500]: Internal server error", code: "bad_gateway" },
+  });
+  const slowFail = new Promise<Response>((resolve) => {
+    setTimeout(
+      () =>
+        resolve(
+          new Response(upstream, { status: 502, headers: { "Content-Type": "application/json" } })
+        ),
+      80
+    );
+  });
+
+  const result = await withEarlyStreamKeepalive(slowFail, {
+    thresholdMs: 20,
+    intervalMs: 20,
+    errorFrame: OPENAI_RESPONSES_ERROR_FRAME,
+    frameErrorBody: responsesFailedFrame,
+  });
+  assert.equal(result.status, 200);
+
+  const body = await readAll(result);
+  const dataLines = body.split("\n").filter((line) => line.startsWith("data: "));
+  const last = JSON.parse(dataLines[dataLines.length - 1].slice(6));
+  assert.equal(last.type, "response.failed");
+  assert.equal(last.response.status, "failed");
+  assert.equal(last.response.error.code, "bad_gateway");
+  assert.equal(last.response.error.message, "[opencode-go/muse] [500]: Internal server error");
+  assert.doesNotMatch(body, /^data: \{"error"/m, "must not leak the untyped bare error frame");
+});
+
+test("responsesFailedFrame falls back to the generic message for non-JSON bodies", () => {
+  const frame = JSON.parse(responsesFailedFrame("<html>bad gateway</html>").slice(6));
+  assert.equal(frame.type, "response.failed");
+  assert.equal(frame.response.error.code, null);
+  assert.equal(frame.response.error.message, "Upstream stream failed before completion.");
 });
 
 test("errorFrame option overrides the default Anthropic-style event: error frame", async () => {

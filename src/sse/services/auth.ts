@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { isCodexPaidCreditsEnabled } from "@/lib/providers/codexPaidCredits";
 import { nodeTypeFromId } from "@/lib/db/providerNodeSelect";
 import { extractGoogApiKeyHeader } from "./googApiKeyAuth.ts";
 import { describeUpstreamFailure } from "@/shared/utils/upstreamError";
@@ -51,7 +52,10 @@ import {
   getQuotaScopeLabelForProvider,
   isAntigravityQuotaProvider,
 } from "@omniroute/open-sse/services/antigravityQuotaFamily.ts";
-import { rehydrateAntigravityFamilyLocksForConnections, persistAntigravityFamilyCooldownIfQuota } from "@omniroute/open-sse/services/antigravityFamilyCooldown.ts";
+import {
+  rehydrateAntigravityFamilyLocksForConnections,
+  persistAntigravityFamilyCooldownIfQuota,
+} from "@omniroute/open-sse/services/antigravityFamilyCooldown.ts";
 import { markQuotaPreflightAccountUnavailable } from "./quotaPreflightUnavailable.ts";
 import { getCreditsMode } from "@omniroute/open-sse/services/antigravityCredits.ts";
 import { preferAntigravityConnectionsWithStoredProject } from "@omniroute/open-sse/services/antigravityProjectPersistence.ts";
@@ -357,6 +361,10 @@ export function evaluateQuotaLimitPolicy(
   connection: ProviderConnectionView,
   requestedModel: string | null = null
 ): { blocked: boolean; reasons: string[]; resetAt: string | null } {
+  // Subscription-only snapshots defer to mandatory credit-aware preflight.
+  if (isCodexPaidCreditsEnabled(provider, connection.providerSpecificData, requestedModel)) {
+    return { blocked: false, reasons: [], resetAt: null };
+  }
   const policy = resolveQuotaLimitPolicy(provider, connection.providerSpecificData);
   if (!policy.enabled || policy.windows.length === 0) {
     return { blocked: false, reasons: [], resetAt: null };
@@ -530,7 +538,12 @@ function getP2CConnectionScore(
     quotaExhausted = cached.exhausted;
   } else {
     quotaBlocked = evaluateQuotaLimitPolicy(provider, connection, requestedModel).blocked;
-    quotaExhausted = isQuotaExhaustedForRequest(connection.id, provider, requestedModel);
+    quotaExhausted = isQuotaExhaustedForRequest(
+      connection.id,
+      provider,
+      requestedModel,
+      connection.providerSpecificData
+    );
   }
 
   const quotaHeadroomPercent = getConnectionQuotaHeadroomPercent(
@@ -1293,7 +1306,12 @@ export async function getProviderCredentials(
         allowRateLimitedConnections,
         bypassQuotaPolicy,
         isQuotaExhausted: (connectionId) =>
-          isQuotaExhaustedForRequest(connectionId, provider, requestedModel),
+          isQuotaExhaustedForRequest(
+            connectionId,
+            provider,
+            requestedModel,
+            connections.find((c) => c.id === connectionId)?.providerSpecificData
+          ),
         isQuotaPolicyBlocked: (connection) =>
           evaluateQuotaLimitPolicy(provider, connection as ProviderConnectionView, requestedModel)
             .blocked,
@@ -1772,7 +1790,12 @@ export async function getProviderCredentials(
     const withQuota: typeof policyEligibleConnections = [];
     const exhaustedQuota: typeof policyEligibleConnections = [];
     for (const c of policyEligibleConnections) {
-      const exhausted = isQuotaExhaustedForRequest(c.id, provider, requestedModel);
+      const exhausted = isQuotaExhaustedForRequest(
+        c.id,
+        provider,
+        requestedModel,
+        c.providerSpecificData
+      );
       const existing = quotaResults.get(c.id);
       if (existing) existing.exhausted = exhausted;
       if (!exhausted) {
@@ -2262,14 +2285,19 @@ export async function getProviderCredentialsWithQuotaPreflight(
     // Otherwise the resolver would return the factory default for every
     // window, and a near-exhausted account would still be caught by the
     // normal 429 → cooldown path.
-    // Explicit per-connection opt-out always wins over global/provider defaults.
+    // Paid-credit consent requires preflight even when the legacy flag is off.
     // isQuotaPreflightEnabled is strict-=== true (back-compat), so it returns
     // false for both "not set" and "explicit false" — we need an explicit check
     // here to distinguish them.
-    const legacyForceDisable =
-      (credentials as { providerSpecificData?: Record<string, unknown> }).providerSpecificData
-        ?.quotaPreflightEnabled === false;
-    if (legacyForceDisable) {
+    const providerSpecificData = (credentials as { providerSpecificData?: Record<string, unknown> })
+      .providerSpecificData;
+    const paidCreditsEnabled = isCodexPaidCreditsEnabled(
+      provider,
+      providerSpecificData,
+      requestedModel
+    );
+    const legacyForceDisable = providerSpecificData?.quotaPreflightEnabled === false;
+    if (legacyForceDisable && !paidCreditsEnabled) {
       const committed = await commitLease();
       if (committed === null) continue;
       return committed;
@@ -2281,7 +2309,7 @@ export async function getProviderCredentialsWithQuotaPreflight(
     if (
       !hasConnectionOverrides &&
       !providerHasDefaults &&
-      !legacyForceEnable &&
+      !(legacyForceEnable || paidCreditsEnabled) &&
       !globalCutoffEnabled &&
       !globalDefaultIsRestrictive
     ) {
@@ -2405,7 +2433,7 @@ export function isAgentrouterConnectionQuotaScope(
 }
 
 async function resolveDailyResetForProvider(
-  provider: string | null,
+  provider: string | null
 ): Promise<{ timezone?: unknown; hour?: unknown } | null> {
   if (!provider) return null;
   try {
@@ -2643,7 +2671,7 @@ export async function markAccountUnavailable(
       effectiveProviderProfile,
       null,
       null,
-      await resolveDailyResetForProvider(provider),
+      await resolveDailyResetForProvider(provider)
     );
 
     // T-PROBE: probe-origin failures (model test-all) must never remove the
@@ -2897,7 +2925,13 @@ export async function markAccountUnavailable(
         "AUTH",
         `Model-only lockout for ${provider}:${model} — ${status} ${reason} ${Math.ceil(lockout.cooldownMs / 1000)}s (failureCount=${lockout.failureCount}, connection stays active)`
       );
-      persistAntigravityFamilyCooldownIfQuota({ provider, connectionId, model, cooldownMs: lockout.cooldownMs, reason });
+      persistAntigravityFamilyCooldownIfQuota({
+        provider,
+        connectionId,
+        model,
+        cooldownMs: lockout.cooldownMs,
+        reason,
+      });
       return { shouldFallback: true, cooldownMs: lockout.cooldownMs };
     }
     const result = fallbackResult;

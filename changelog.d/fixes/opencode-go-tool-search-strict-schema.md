@@ -1,0 +1,1 @@
+- Strict-complete the Codex `tool_search` built-in schema (every property required, optional ones nullable, `additionalProperties:false`) for OpenCode Go Responses targets, which validate it in strict mode on muse-spark and rejected it with 400 "Missing `limit`".

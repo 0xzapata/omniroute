@@ -30,6 +30,27 @@ test("fetchCodexQuota returns null when no registered credentials exist", async 
   assert.equal(quota, null);
 });
 
+test("fetchCodexQuota exposes available paid credits without changing exhausted subscription windows", async () => {
+  globalThis.fetch = async () =>
+    Response.json({
+      rate_limit: { limit_reached: true, primary_window: { used_percent: 100 } },
+      credits: { has_credits: true, unlimited: false, overage_limit_reached: false, balance: null },
+    });
+  const connectionId = "codex-paid-credits-fetch";
+  try {
+    const quota = await fetchCodexQuota(connectionId, {
+      accessToken: "test-token",
+      providerSpecificData: { workspaceId: "test-workspace" },
+    });
+    assert.equal(quota?.paidCredits?.hasCredits, true);
+    assert.equal(quota?.paidCredits?.balance, null);
+    assert.equal(quota?.limitReached, true);
+    assert.equal(quota?.windows?.session.percentUsed, 1);
+  } finally {
+    invalidateCodexQuotaCache(connectionId);
+  }
+});
+
 test("fetchCodexQuota can read credentials directly from the provided connection snapshot", async () => {
   const connectionId = `codex-inline-${Date.now()}`;
   const calls = [];
@@ -258,4 +279,34 @@ test("registerCodexQuotaFetcher exposes Codex quota to preflight and monitor flo
 
   stopQuotaMonitor("session-codex");
   assert.equal(getActiveMonitorCount(), 0);
+});
+
+test("credit-only accounts require consent and usable credits without inventing subscription headroom", async () => {
+  const { evaluateQuotaCutoff } = await import("../../open-sse/services/quotaPreflight.ts");
+  globalThis.fetch = async () => Response.json({ credits: { has_credits: true, balance: "12.5" } });
+  const quota = await fetchCodexQuota("credit-only-account", { accessToken: "test-token" });
+  assert.ok(quota);
+  assert.deepEqual(quota.windows, {});
+  assert.equal(
+    quota.window5h.percentUsed,
+    1,
+    "unknown subscription windows must not advertise headroom"
+  );
+  assert.equal(quota.window7d.percentUsed, 1);
+  assert.equal(evaluateQuotaCutoff(quota, undefined, { provider: "codex" }).proceed, false);
+  assert.equal(
+    evaluateQuotaCutoff(quota, undefined, {
+      provider: "codex",
+      providerSpecificData: { allowPaidCredits: true },
+      requestedModel: "gpt-5.5",
+    }).proceed,
+    true
+  );
+  assert.equal(
+    await fetchCodexQuota("credit-only-spark", {
+      accessToken: "test-token",
+      requestedModel: "gpt-5.3-codex-spark",
+    }),
+    null
+  );
 });
