@@ -313,10 +313,12 @@ RUN --mount=type=cache,id=s/92ca8a61-c1ba-421f-a389-d48ac7258c2d-apt-cache,targe
 
 # Install CLI tools globally. Separate layer from apt for better cache reuse.
 # Publication supplies a fresh value so Docker re-resolves @latest on every run.
+# npm 12 blocks lifecycle scripts by default; approve only the CLI installers
+# and native/runtime dependencies that need them.
 ARG CLI_TOOLS_REFRESH=local
 RUN --mount=type=cache,id=s/92ca8a61-c1ba-421f-a389-d48ac7258c2d-npm-cache,target=/root/.npm \
   echo "Refreshing CLI tools: ${CLI_TOOLS_REFRESH}" \
-  && npm install -g --prefer-online --no-audit --no-fund @openai/codex@latest @anthropic-ai/claude-code@latest opencode-ai@latest droid openclaw@latest
+  && npm install -g --prefer-online --no-audit --no-fund --allow-scripts=@anthropic-ai/claude-code,droid,opencode-ai,openclaw,esbuild,koffi,protobufjs @openai/codex@latest @anthropic-ai/claude-code@latest opencode-ai@latest droid openclaw@latest
 
 USER node
 
