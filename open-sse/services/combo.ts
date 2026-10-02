@@ -572,13 +572,8 @@ export async function buildAutoCandidates(
       const authType = typeof connection?.authType === "string" ? connection.authType : null;
       const sessionAvailability =
         authType === "oauth" ? getOAuthSessionAvailability(target.connectionId, sessionId) : 1;
-      // Gate the terminal-status cutoff behind the same opt-in as the quota-percent
-      // cutoff (#4483): when quota cutoff is disabled, a connection in a terminal
-      // testStatus must still fall through to normal connection-cooldown / model-lockout
-      // handling instead of being hard-blocked here (which would surface a misleading
-      // "below quota cutoff" 429 when every candidate is transiently unavailable).
-      // The connection's terminal/transient status (credits_exhausted / rate_limited /
-      // banned / expired / future-dated unavailable) is classified unconditionally.
+      // Apply terminal-status cutoff only when quota cutoff is enabled; otherwise
+      // preserve the soft penalty and normal cooldown/model-lockout handling.
       const connectionStatusReason = getConnectionStatusQuotaCutoffReason(connection);
       const statusCutoffReason = quotaCutoffEnabled ? connectionStatusReason : undefined;
       // #4540: when the HARD cutoff is OFF (default), a status-flagged connection is NOT
@@ -627,7 +622,11 @@ export async function buildAutoCandidates(
           const cutoffDecision = evaluateQuotaCutoff(
             quota as QuotaInfo | null,
             buildAutoQuotaThresholds(provider, connection, resilienceSettings),
-            { provider, requestedModel: modelStr }
+            {
+              provider,
+              requestedModel: modelStr,
+              providerSpecificData: connection?.providerSpecificData,
+            }
           );
           if (!cutoffDecision.proceed) {
             quotaCutoffBlocked = true;

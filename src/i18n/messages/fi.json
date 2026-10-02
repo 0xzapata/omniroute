@@ -5040,6 +5040,13 @@
     }
   },
   "providers": {
+    "codexPaidCreditsShort": "Extra credits",
+    "codexPaidCreditsToggleTitle": "Allow paid Codex credits after subscription quota runs out (additional charges may apply)",
+    "codexPaidCreditsEnabled": "Codex paid credits enabled (additional charges may apply)",
+    "codexPaidCreditsDisabled": "Codex paid credits disabled",
+    "failedUpdateCodexPaidCredits": "Failed to update Codex paid-credit policy",
+    "allowCodexPaidCreditsLabel": "Allow paid Codex credits",
+    "allowCodexPaidCreditsDescription": "Allow this account to use paid credits after its subscription quota reaches the cutoff. Requires available credits reported by OpenAI; may incur charges. Spark limits and upstream cooldowns still apply. Credit availability is checked even if quota preflight is disabled.",
     "title": "Palveluntarjoajat",
     "Account Deactivated": "Tili poistettu käytöstä",
     "allProviders": "Kaikki palveluntarjoajat",
@@ -9245,6 +9252,15 @@
     "streamTransformFailed": "Virran muuntaminen epäonnistui"
   },
   "usage": {
+    "codexCreditUnknown": "Credit availability unknown",
+    "codexCreditSpendingLimit": "Spending limit reached",
+    "codexCreditAvailable": "Credits available",
+    "codexCreditUnavailable": "No usable credits",
+    "codexCreditBalanceUnknown": "Balance not reported",
+    "codexCreditRoutingEnabled": "Paid-credit routing enabled",
+    "codexCreditRoutingDisabled": "Paid-credit routing disabled",
+    "codexPaidCreditsLabel": "Paid Codex credits",
+    "codexPaidCreditsUnlimited": "Unlimited",
     "title": "Käyttö",
     "grokExtraUsageCredits": "Lisäkäyttöluottoja",
     "grokAutoTopUp": "Automaattinen Lataus",

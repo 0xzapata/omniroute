@@ -1,3 +1,4 @@
+import { parseCodexPaidCredits } from "@/lib/providers/codexPaidCredits";
 import type { ProviderLimitsCacheEntry } from "@/lib/db/providerLimits";
 import { sanitizeProviderBillingStatus } from "@/shared/utils/providerBilling";
 import { GROK_BUILD_ADDITIONAL_CREDITS_URL } from "@/shared/utils/grokBilling";
@@ -27,6 +28,7 @@ export function toProviderLimitsCacheEntry(
     fetchedAt,
     source,
     bankedResetCredits: Number.isFinite(bankedResetCredits) ? bankedResetCredits : undefined,
+    paidCredits: parseCodexPaidCredits(usage.paidCredits),
     billing: sanitizeProviderBillingStatus(usage.billing),
   };
 }

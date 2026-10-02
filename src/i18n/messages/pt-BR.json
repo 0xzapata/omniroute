@@ -5041,6 +5041,13 @@
     }
   },
   "providers": {
+    "codexPaidCreditsShort": "Créditos extras",
+    "codexPaidCreditsToggleTitle": "Permitir créditos pagos do Codex após o esgotamento da cota da assinatura (cobranças adicionais podem ser aplicadas)",
+    "codexPaidCreditsEnabled": "Créditos pagos do Codex habilitados (cobranças adicionais podem ser aplicadas)",
+    "codexPaidCreditsDisabled": "Créditos pagos do Codex desabilitados",
+    "failedUpdateCodexPaidCredits": "Falha ao atualizar a política de créditos pagos do Codex",
+    "allowCodexPaidCreditsLabel": "Permitir créditos pagos do Codex",
+    "allowCodexPaidCreditsDescription": "Permite que esta conta use créditos pagos depois que a cota da assinatura atingir o limite de corte. Requer créditos disponíveis informados pela OpenAI; pode gerar cobranças. Os limites do Spark e os cooldowns do upstream continuam se aplicando. A disponibilidade de créditos é verificada mesmo se o preflight de cota estiver desabilitado.",
     "title": "Provedores",
     "Account Deactivated": "Conta Desativada",
     "allProviders": "Todos os provedores",
@@ -9249,6 +9256,15 @@
     "streamTransformFailed": "Falha ao transformar o stream"
   },
   "usage": {
+    "codexCreditUnknown": "Credit availability unknown",
+    "codexCreditSpendingLimit": "Spending limit reached",
+    "codexCreditAvailable": "Credits available",
+    "codexCreditUnavailable": "No usable credits",
+    "codexCreditBalanceUnknown": "Balance not reported",
+    "codexCreditRoutingEnabled": "Paid-credit routing enabled",
+    "codexCreditRoutingDisabled": "Paid-credit routing disabled",
+    "codexPaidCreditsLabel": "Créditos pagos do Codex",
+    "codexPaidCreditsUnlimited": "Ilimitado",
     "title": "Uso",
     "grokExtraUsageCredits": "Créditos de uso extra",
     "grokAutoTopUp": "Recarga automática",
