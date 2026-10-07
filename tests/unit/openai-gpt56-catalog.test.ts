@@ -5,7 +5,7 @@ import { getModelsByProviderId } from "../../open-sse/config/providerModels.ts";
 import { getModelSpec } from "../../src/shared/constants/modelSpecs.ts";
 import { getPricingForModel } from "../../src/shared/constants/pricing.ts";
 
-const EXPECTED_MODELS = ["gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"];
+const EXPECTED_MODELS = ["gpt-6.1-sol", "gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"];
 
 test("OpenAI API catalog exposes the public GPT-5.6 family and keeps GPT-5.4", () => {
   const models = getModelsByProviderId("openai");

@@ -101,6 +101,8 @@ export function getCodexFastCostMultiplier(
 
   const modelKey = stripCodexEffortSuffix(normalizeModelName(String(model || "")).toLowerCase());
   const compactModelKey = modelKey.replace(/-/g, "");
+  // Purchased-credit/USD Fast estimates use 2x; subscription consumption uses 2.5x.
+  if (compactModelKey === "gpt6.1sol") return 2;
   if (
     /^gpt-5\.6-(?:sol|terra|luna)$/.test(modelKey) ||
     /^gpt5\.6(?:sol|terra|luna)$/.test(compactModelKey)

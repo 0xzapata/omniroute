@@ -12,6 +12,15 @@ export const openaiProvider: RegistryEntry = {
   authHeader: "bearer",
   defaultContextLength: 128000,
   models: [
+    // https://developers.openai.com/api/docs/models/gpt-6.1-sol
+    // API: 1.05M context, low..max (no none/minimal); tools require Responses.
+    {
+      id: "gpt-6.1-sol",
+      name: "GPT-6.1 Sol",
+      ...GPT_5_6_API_CAPABILITIES,
+      supportedThinkingEfforts: ["low", "medium", "high", "xhigh", "max"],
+      unsupportedParams: ["temperature", "top_p", "top_logprobs", "logprobs"],
+    },
     // #11489: per OpenAI's model reference `gpt-5.6` is an ALIAS of `gpt-5.6-sol`,
     // not a distinct model — quality scores point forward, which no suffix
     // stripper can express. Siblings `-terra`/`-luna` are their own models.

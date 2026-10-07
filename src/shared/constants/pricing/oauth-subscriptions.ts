@@ -19,6 +19,10 @@ const ANTIGRAVITY_GEMINI_3_7_PRICING = {
   "gemini-3.7-flash-high": GEMINI_3_7_FLASH_PROMO_PRICING,
 };
 
+// Standard: 50 / 2.5 / 250 credits per MTok at 25 credits/USD.
+// https://developers.openai.com/codex/pricing/ (no separate cache-write rate).
+const GPT_6_1_SOL_CODEX_PRICING = { input: 2, output: 10, cached: 0.1, reasoning: 10 };
+
 export const DEFAULT_PRICING_OAUTH = {
   cc: {
     "claude-fable-5-1": CLAUDE_FABLE_5_1_PRICING,
@@ -88,6 +92,13 @@ export const DEFAULT_PRICING_OAUTH = {
     },
   },
   cx: {
+    "gpt-6.1-sol": GPT_6_1_SOL_CODEX_PRICING,
+    "gpt-6.1-sol-ultra": GPT_6_1_SOL_CODEX_PRICING,
+    "gpt-6.1-sol-max": GPT_6_1_SOL_CODEX_PRICING,
+    "gpt-6.1-sol-xhigh": GPT_6_1_SOL_CODEX_PRICING,
+    "gpt-6.1-sol-high": GPT_6_1_SOL_CODEX_PRICING,
+    "gpt-6.1-sol-medium": GPT_6_1_SOL_CODEX_PRICING,
+    "gpt-6.1-sol-low": GPT_6_1_SOL_CODEX_PRICING,
     "codex-auto-review": GPT_5_5_PRICING,
     // Codex uses credits per 1M tokens. OmniRoute stores the dollar-equivalent
     // values below at the documented conversion of 25 credits per USD.

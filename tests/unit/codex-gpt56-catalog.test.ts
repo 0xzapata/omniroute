@@ -6,6 +6,13 @@ import { getModelsByProviderId } from "../../open-sse/config/providerModels.ts";
 test("Codex catalog exposes the GPT-5.6 lineup in configured priority order", () => {
   const models = getModelsByProviderId("codex");
   const expectedIds = [
+    "gpt-6.1-sol",
+    "gpt-6.1-sol-ultra",
+    "gpt-6.1-sol-max",
+    "gpt-6.1-sol-xhigh",
+    "gpt-6.1-sol-high",
+    "gpt-6.1-sol-medium",
+    "gpt-6.1-sol-low",
     "gpt-5.6-sol",
     "gpt-5.6-sol-ultra",
     "gpt-5.6-sol-max",
