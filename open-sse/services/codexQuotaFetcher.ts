@@ -447,7 +447,6 @@ function parseCodexUsageResponse(
   });
 
   const bankedResetCredits = parseBankedResetCredits(obj);
-  const paidCredits = parseCodexPaidCredits(obj.credits);
   const rateLimitReachedType = parseRateLimitReachedType(obj);
 
   return {
