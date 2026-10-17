@@ -21,10 +21,13 @@ import { NEWS_JSON_URL, parseActiveNewsPayload } from "@/shared/utils/releaseNot
 import {
   clearLatestVersionCache,
   isNewer,
+  resolveDistTagsCached,
   resolveLatestVersionCached,
 } from "@/lib/system/versionCheck";
+import { describeReleaseChannels } from "@/lib/system/releaseChannel";
 import { resolveGlobalOmniroutePath } from "@/lib/system/globalPackagePath";
 import { restartRunningServer } from "@/lib/system/processManagerRestart";
+import { APP_CONFIG } from "@/shared/constants/appConfig";
 // #5542 — On Windows npm is `npm.cmd`; Node ≥24 refuses to execFile a `.cmd` without
 // a shell (nodejs/node#52554 → "spawn npm ENOENT"). buildNpmExecOptions enables the
 // shell on win32 only; SERVICE_VERSION_PATTERN keeps the shell-joined version safe.
@@ -35,11 +38,7 @@ const execFileAsync = promisify(execFile);
 export const dynamic = "force-dynamic";
 
 function getCurrentVersion(): string {
-  try {
-    return require("../../../../../package.json").version as string;
-  } catch {
-    return "unknown";
-  }
+  return APP_CONFIG.version;
 }
 
 /**
@@ -75,16 +74,21 @@ export async function GET(req: NextRequest) {
   const current = getCurrentVersion();
   const config = getAutoUpdateConfig();
 
-  const [latest, news, validation] = await Promise.all([
-    resolveLatestVersionCached({
-      bypassCache: /(?:^|,)\s*(?:no-cache|no-store)\b/i.test(
-        req.headers.get("Cache-Control") ?? ""
-      ),
-      storeResult: !/(?:^|,)\s*no-store\b/i.test(req.headers.get("Cache-Control") ?? ""),
-    }),
+  const cacheControl = req.headers.get("Cache-Control") ?? "";
+  const cacheOptions = {
+    bypassCache: /(?:^|,)\s*(?:no-cache|no-store)\b/i.test(cacheControl),
+    storeResult: !/(?:^|,)\s*no-store\b/i.test(cacheControl),
+  };
+  const [latest, distTags, news, validation] = await Promise.all([
+    resolveLatestVersionCached(cacheOptions),
+    resolveDistTagsCached(cacheOptions),
     getNews(),
     validateAutoUpdateRuntime(config),
   ]);
+  // Additive (rail 3.8.54): `channel` keeps meaning the deployment mode
+  // (npm / source / docker-compose) the dashboard updater relies on; the npm
+  // release channel of the running build is `releaseChannel`.
+  const { releaseChannel, channels } = describeReleaseChannels(current, distTags, latest);
 
   const body = {
     current,
@@ -94,6 +98,8 @@ export async function GET(req: NextRequest) {
     autoUpdateSupported: validation.supported,
     autoUpdateError: validation.reason,
     news,
+    releaseChannel,
+    channels,
   };
   const serialized = JSON.stringify(body);
   const etag = `"${createHash("sha256").update(serialized).digest("base64url")}"`;

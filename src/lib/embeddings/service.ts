@@ -18,7 +18,8 @@ import {
 } from "@/sse/services/auth";
 import { getCachedProviderNodes } from "@/lib/db/readCache";
 import { getComboByName, getCombos } from "@/lib/db/combos";
-import { getDatabaseSettings } from "@/lib/db/databaseSettings";
+import { getProviderConnections } from "@/lib/db/providers";
+import { getUserDatabaseSettings } from "@/lib/db/databaseSettings";
 import { resolveProxyForConnection } from "@/lib/db/settings";
 import { runWithProxyContext } from "@omniroute/open-sse/utils/proxyFetch.ts";
 import { handleComboChat } from "@omniroute/open-sse/services/combo.ts";
@@ -33,6 +34,30 @@ import { calculateCost } from "@/lib/usage/costCalculator";
 import { attachOmniRouteMetaHeaders } from "@/domain/omnirouteResponseMeta";
 import { generateRequestId } from "@/shared/utils/requestId";
 import { resolveLocalSyncedEndpointRoute } from "@/lib/providerModels/syncedEndpointRouting";
+import { resolveAlibabaProviderEmbeddingUrl } from "@/shared/constants/alibabaProviderRegions";
+
+/**
+ * A local server (llama.cpp, LM Studio, …) embeds with whatever model it loaded and
+ * ignores the request's `model`, so two connections of the same local provider are
+ * NOT interchangeable accounts. Never pick a connection whose configured default model
+ * names a different model: returns the ids of the remaining active connections, or
+ * null (no restriction) when no connection declares a conflicting default model.
+ */
+async function localConnectionsServingModel(
+  provider: string,
+  model: string | null
+): Promise<string[] | null> {
+  if (!model) return null;
+  const connections = await getProviderConnections({ provider, isActive: true });
+  const normalize = (value: string) => value.replace(/^\/+/, "");
+  const eligible = connections.filter((connection) => {
+    const defaultModel = connection.defaultModel;
+    return typeof defaultModel !== "string" || !defaultModel
+      ? true
+      : normalize(defaultModel) === normalize(model);
+  });
+  return eligible.length === connections.length ? null : eligible.map((c) => String(c.id));
+}
 
 type ValidatedEmbeddingBody = Record<string, unknown> & { model: string };
 type ProviderCredentialsResult = Awaited<ReturnType<typeof getProviderCredentials>>;
@@ -94,7 +119,7 @@ export async function createEmbeddingResponse(
 
         let settings = {};
         try {
-          settings = getDatabaseSettings();
+          settings = getUserDatabaseSettings();
         } catch {}
 
         // Inject the combo's configured dimensions into the request body so that
@@ -227,12 +252,17 @@ export async function createEmbeddingResponse(
     }
     let baseUrl = configuredBaseUrl.trim();
     while (baseUrl.endsWith("/")) baseUrl = baseUrl.slice(0, -1);
+    // Keep the registry provider's structured-input capabilities (e.g. llama.cpp
+    // multimodal content parts); only the endpoint and auth come from the connection.
+    const registryConfig = getEmbeddingProvider(provider);
     providerConfig = {
       id: provider,
       baseUrl: baseUrl.endsWith("/embeddings") ? baseUrl : `${baseUrl}/embeddings`,
       authType: "apikey",
       authHeader: "bearer",
       models: [],
+      structuredInputProtocol: registryConfig?.structuredInputProtocol,
+      passthroughModalities: registryConfig?.passthroughModalities,
     };
   }
 
@@ -297,6 +327,18 @@ export async function createEmbeddingResponse(
   }
 
   if (!providerConfig) {
+    // Root cause is otherwise invisible: this 400 is returned before any
+    // call_logs row is written, so a real embedding-provider misconfiguration
+    // (e.g. a customModels override whose id prefix doesn't match its own
+    // connection's provider id, or a stale synced-model cache -- both silent
+    // for months in production) previously left no trace anywhere in
+    // OmniRoute's own logs or dashboard, only in the calling client's log.
+    log.warn(
+      "EMBED",
+      `Unknown embedding provider ${provider} for model "${body.model}" -- checked static ` +
+        "registry, provider_nodes, chat-provider fallback, and the self-hosted synced-endpoint " +
+        "route (customModels override + synced model cache) with no match"
+    );
     return errorResponse(
       HTTP_STATUS.BAD_REQUEST,
       formatUnknownEmbeddingProviderError(provider, resolvedModel)
@@ -328,15 +370,36 @@ export async function createEmbeddingResponse(
         `[${provider}] All ${credentials.expiredCount || 1} connection(s) ${reason} — please reconnect in the dashboard`
       );
     }
-  } else if (provider === "ollama-local" || provider === "lmstudio") {
-    // Ollama and LM Studio are keyless, but a configured connection can still
-    // provide a custom local host. Hydrate that optional connection without
-    // imposing an authentication requirement, then keep the static localhost
-    // default when no connection exists. getProviderCredentials("lmstudio")
-    // resolves the dashboard's hyphenated "lm-studio" connection via the
-    // provider search pool/alias (#11233); a selection or rate-limit failure
-    // must not break the flow — proceed without credentials.
-    const localCredentials = await getProviderCredentials(credentialsProviderId);
+    // #13945: blockedByKeyPolicy is the third credential-diagnostic sentinel
+    // (alongside allRateLimited/allExpired above) — without this check a
+    // truthy sentinel would reach the embeddings executor below with no
+    // apiKey/accessToken. Defensive: this call site does not pass
+    // allowedConnections today, so the sentinel cannot fire yet, but it
+    // guards the same contract the moment that scope is wired in (mirrors
+    // #13832's blockedByKeyPolicy handling in the chat path).
+    if ("blockedByKeyPolicy" in credentials && credentials.blockedByKeyPolicy) {
+      return errorResponse(
+        HTTP_STATUS.BAD_REQUEST,
+        formatMissingEmbeddingCredentialsError(provider)
+      );
+    }
+  } else if (
+    provider === "ollama-local" ||
+    provider === "lmstudio" ||
+    provider === "llama-cpp" ||
+    provider === "lemonade"
+  ) {
+    // Local providers are key-optional, but a configured connection can provide
+    // a custom host or API key (e.g. Lemonade bearer auth). Hydrate that optional
+    // connection without imposing an authentication requirement, then keep the
+    // static localhost default when no connection exists.
+    // An empty allowlist means "no filter" to getProviderCredentials, so a request
+    // that no connection serves must skip connection selection entirely.
+    const servingIds = await localConnectionsServingModel(credentialsProviderId, resolvedModel);
+    const localCredentials =
+      servingIds && servingIds.length === 0
+        ? null
+        : await getProviderCredentials(credentialsProviderId, null, servingIds);
     if (
       localCredentials &&
       !("allRateLimited" in localCredentials) &&
@@ -344,6 +407,49 @@ export async function createEmbeddingResponse(
     ) {
       credentials = localCredentials;
     }
+  } else if (!credentials && providerConfig.authType === "none") {
+    // #13234: private-host nodes are classified no-auth so a keyless
+    // LAN Ollama still works (#6925). A stored API key on that same
+    // node must still ride outbound, matching dashboard Check.
+    const keyedCredentials = await getProviderCredentials(credentialsProviderId);
+    if (
+      keyedCredentials &&
+      !("allRateLimited" in keyedCredentials) &&
+      !("allExpired" in keyedCredentials)
+    ) {
+      const token =
+        (typeof (keyedCredentials as { apiKey?: unknown }).apiKey === "string" &&
+          (keyedCredentials as { apiKey?: string }).apiKey) ||
+        (typeof (keyedCredentials as { accessToken?: unknown }).accessToken === "string" &&
+          (keyedCredentials as { accessToken?: string }).accessToken) ||
+        "";
+      if (token) {
+        credentials = keyedCredentials;
+        providerConfig = {
+          ...providerConfig,
+          authType: "apikey",
+          authHeader: "bearer",
+        };
+      }
+    }
+  }
+
+  // Alibaba's embedding endpoint is connection-scoped: workspace and region
+  // live in providerSpecificData, so the static chat registry cannot select it.
+  if (
+    credentials &&
+    !options.resolvedProvider &&
+    (provider === "alibaba" || provider === "alibaba-cn")
+  ) {
+    const providerSpecificData = (
+      credentials as { providerSpecificData?: Record<string, unknown> | null }
+    ).providerSpecificData;
+    const connectionBaseUrl = resolveAlibabaProviderEmbeddingUrl(
+      provider,
+      providerSpecificData,
+      providerConfig.baseUrl
+    );
+    if (connectionBaseUrl) providerConfig = { ...providerConfig, baseUrl: connectionBaseUrl };
   }
 
   // #474: when the request used a bare model name (no "/" — e.g. an alias that

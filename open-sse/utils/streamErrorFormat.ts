@@ -1,6 +1,7 @@
 import { FORMATS } from "../translator/formats.ts";
 import { buildErrorBody, sanitizeErrorMessage } from "./error.ts";
 import { projectResponsesFailureOutput } from "./responsesFailureOutput.ts";
+import { SYNTHETIC_RESPONSES_SEQUENCE_NUMBER } from "./responsesSequence.ts";
 
 /**
  * Upstream stream-failure normalization + client-format error framing.
@@ -11,11 +12,19 @@ import { projectResponsesFailureOutput } from "./responsesFailureOutput.ts";
 
 type JsonRecord = Record<string, unknown>;
 
+export type StreamFailureSnapshot = {
+  providerEventCount: number;
+  providerSummary?: unknown;
+};
+
 export type StreamFailurePayload = {
   status: number;
   message: string;
   code?: string;
   type?: string;
+  /** The stream had already forwarded text/reasoning/tool output to the client. */
+  outputEmitted?: boolean;
+  streamSnapshot?: StreamFailureSnapshot;
 };
 
 export type ProjectedStreamFailureEvent = {
@@ -44,6 +53,12 @@ export function projectCompletedStreamError(
 
 function asRecord(value: unknown): JsonRecord {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : {};
+}
+
+function copyFailureSnapshot(record: JsonRecord): Pick<StreamFailurePayload, "streamSnapshot"> {
+  const snapshot = record.streamSnapshot;
+  if (snapshot === undefined) return {};
+  return { streamSnapshot: snapshot as StreamFailureSnapshot };
 }
 
 const RESPONSES_FAILURE_SCALAR_FIELDS = [
@@ -188,6 +203,15 @@ export function normalizeStreamFailurePayload(payload: unknown): StreamFailurePa
             : typeof record.message === "string" && record.message.trim()
               ? record.message
               : "Upstream failure";
+  const requestScopedInputFailure =
+    type === "invalid_request" ||
+    code === "invalid_request" ||
+    type === "invalid_request_error" ||
+    code === "invalid_request_error" ||
+    type === "context_length_exceeded" ||
+    code === "context_length_exceeded" ||
+    type === "context_window_exceeded" ||
+    code === "context_window_exceeded";
   const status =
     toStreamFailureStatus(error.status_code) ??
     toStreamFailureStatus(error.status) ??
@@ -195,13 +219,22 @@ export function normalizeStreamFailurePayload(payload: unknown): StreamFailurePa
     toStreamFailureStatus(response.status) ??
     toStreamFailureStatus(record.status_code) ??
     toStreamFailureStatus(record.status) ??
-    (looksLikeStreamRateLimit(code, type || "", message) ? 429 : 502);
+    (requestScopedInputFailure
+      ? 400
+      : type === "authentication_error" || code === "invalid_api_key"
+        ? 401
+        : type === "permission_error" || code === "permission_denied"
+          ? 403
+          : looksLikeStreamRateLimit(code, type || "", message)
+            ? 429
+            : 502);
 
   return {
     status,
     message,
     code,
     ...(type ? { type } : {}),
+    ...copyFailureSnapshot(record),
   };
 }
 
@@ -303,7 +336,9 @@ export function formatTranslatedStreamError(payload: unknown, sourceFormat?: str
         error: errorBody.error,
         output: [],
       },
-      sequence_number: 0,
+      // #14330: was hardcoded to 0 — see OPENAI_RESPONSES_ERROR_FRAME's comment in
+      // earlyStreamKeepalive.ts for why this collided with the real emitter's first event.
+      sequence_number: SYNTHETIC_RESPONSES_SEQUENCE_NUMBER,
     };
     return `event: response.failed\ndata: ${JSON.stringify(failed)}\n\n`;
   }

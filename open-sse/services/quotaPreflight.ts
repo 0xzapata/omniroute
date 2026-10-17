@@ -18,13 +18,19 @@
  * it — once you invoke preflight, it runs the fetcher and evaluates.
  */
 
+import { isCompatibleProviderConnectionId } from "@/shared/utils/compatibleProviderId";
+import { isFeatureFlagEnabled } from "@/shared/utils/featureFlags";
+import { isClaudeExtraUsageAllowed } from "@/lib/providers/claudeExtraUsage";
+import { isCodexQuotaFilteringDisabled } from "@/lib/providers/codexQuotaFiltering";
+// #14359 — import the leaf, NOT "@/domain/quotaCache": quotaCache → usage.ts → usage/openrouter.ts →
+// openrouterQuotaFetcher.ts → this file, so importing quotaCache here closes an ESM init cycle
+// that deadlocks the esbuild MCP bundle (tests/unit/build/mcp-bundle-startup.test.ts).
+import { isQuotaHealthy } from "@/domain/quotaCacheState";
 import {
   hasCodexPaidCredits,
   isCodexPaidCreditsEnabled,
   type CodexPaidCredits,
 } from "@/lib/providers/codexPaidCredits";
-import { isCompatibleProviderConnectionId } from "@/shared/utils/compatibleProviderId";
-import { isFeatureFlagEnabled } from "@/shared/utils/featureFlags";
 import { fetchNewApiAggregatorQuota } from "./newApiAggregatorQuotaFetcher.ts";
 import {
   isAntigravityQuotaProvider,
@@ -40,9 +46,11 @@ export interface PreflightQuotaResult {
 }
 
 export interface QuotaCutoffScope {
-  providerSpecificData?: unknown;
   provider?: string | null;
   requestedModel?: string | null;
+  providerSpecificData?: unknown;
+  // #14359 — recent successful dispatch stands the cutoff down for this connection.
+  connectionId?: string | null;
 }
 
 export interface QuotaWindowInfo {
@@ -78,6 +86,13 @@ export interface QuotaInfo {
   limitReached?: boolean;
   /** Separate from subscription percentages and banked quota-reset coupons. */
   paidCredits?: CodexPaidCredits;
+  /**
+   * True when the provider reports NO cap at all (every reported window is unlimited). It is
+   * a real, known reading of full headroom, not a failed one: `null` from a quota fetcher
+   * means "could not read it", so unlimited plans are marked here instead of returning null
+   * (#15347). `percentUsed` is 0 on such a snapshot.
+   */
+  unlimited?: boolean;
 }
 
 export type QuotaFetcher = (
@@ -211,36 +226,89 @@ function limitReachedResult(quota: QuotaInfo): PreflightQuotaResult {
   );
 }
 
+function isEntryExhausted(
+  windowName: string,
+  percentUsed: number,
+  thresholds?: PreflightQuotaThresholds
+): boolean {
+  const minRemainingPercent = resolveOrDefault(
+    thresholds?.resolveMinRemainingPercent,
+    windowName,
+    DEFAULT_MIN_REMAINING_PERCENT
+  );
+  return isRemainingAtOrBelowThreshold(remainingPercentFrom(percentUsed), minRemainingPercent);
+}
+
+function evaluateQuotaGroup(
+  entries: Array<[string, QuotaWindowInfo]>,
+  thresholds?: PreflightQuotaThresholds
+): {
+  exhausted: boolean;
+  worstPercent: number;
+  worstWindow: string | null;
+  worstResetAt: string | null;
+} {
+  let exhausted = true;
+  let worstPercent = -1;
+  let worstWindow: string | null = null;
+  let worstResetAt: string | null = null;
+  for (const [windowName, windowInfo] of entries) {
+    if (!isEntryExhausted(windowName, windowInfo.percentUsed, thresholds)) {
+      exhausted = false;
+    }
+    if (windowInfo.percentUsed > worstPercent) {
+      worstPercent = windowInfo.percentUsed;
+      worstWindow = windowName;
+      worstResetAt = windowInfo.resetAt ?? null;
+    }
+  }
+  return { exhausted, worstPercent: Math.max(0, worstPercent), worstWindow, worstResetAt };
+}
+
+function groupQuotaWindowsByBase(
+  windows: NonNullable<QuotaInfo["windows"]>
+): Map<string, Array<[string, QuotaWindowInfo]>> {
+  const groups = new Map<string, Array<[string, QuotaWindowInfo]>>();
+  for (const [windowName, windowInfo] of Object.entries(windows)) {
+    if (!Number.isFinite(windowInfo.percentUsed)) continue;
+    const base = windowName.endsWith("_freetrial") ? windowName.slice(0, -10) : windowName;
+    const list = groups.get(base);
+    if (list) list.push([windowName, windowInfo]);
+    else groups.set(base, [[windowName, windowInfo]]);
+  }
+  return groups;
+}
+
 function quotaWindowCutoffResult(
   windows: NonNullable<QuotaInfo["windows"]>,
   thresholds?: PreflightQuotaThresholds
 ): PreflightQuotaResult | null {
-  let worstUsedPercent = 0;
-  let worstWindow: string | null = null;
-  let worstResetAt: string | null = null;
+  const groups = groupQuotaWindowsByBase(windows);
+  if (groups.size === 0) return null;
 
-  for (const [windowName, windowInfo] of Object.entries(windows)) {
-    if (!Number.isFinite(windowInfo.percentUsed)) continue;
-    const minRemainingPercent = resolveOrDefault(
-      thresholds?.resolveMinRemainingPercent,
-      windowName,
-      DEFAULT_MIN_REMAINING_PERCENT
+  let worstExhaustedPercent = 0;
+  let worstExhaustedWindow: string | null = null;
+  let worstExhaustedResetAt: string | null = null;
+  let hasExhaustedGroup = false;
+
+  for (const entries of groups.values()) {
+    const { exhausted, worstPercent, worstWindow, worstResetAt } = evaluateQuotaGroup(
+      entries,
+      thresholds
     );
-    if (
-      !isRemainingAtOrBelowThreshold(
-        remainingPercentFrom(windowInfo.percentUsed),
-        minRemainingPercent
-      )
-    ) {
-      continue;
+    if (exhausted) {
+      hasExhaustedGroup = true;
+      if (worstPercent > worstExhaustedPercent || worstExhaustedWindow === null) {
+        worstExhaustedPercent = worstPercent;
+        worstExhaustedWindow = worstWindow;
+        worstExhaustedResetAt = worstResetAt;
+      }
     }
-    if (windowInfo.percentUsed <= worstUsedPercent && worstWindow !== null) continue;
-    worstUsedPercent = windowInfo.percentUsed;
-    worstWindow = windowName;
-    worstResetAt = windowInfo.resetAt ?? null;
   }
 
-  return worstWindow === null ? null : exhaustedResult(worstUsedPercent, worstResetAt, worstWindow);
+  return hasExhaustedGroup
+    ? exhaustedResult(worstExhaustedPercent, worstExhaustedResetAt, worstExhaustedWindow)
+    : null;
 }
 
 function quotaPercentCutoffResult(
@@ -261,7 +329,8 @@ function quotaPercentCutoffResult(
 }
 
 /**
- * Allow paid continuation only with explicit consent and usable credit data.
+ * Opt-in paid-credits short-circuit for evaluateQuotaCutoff, isolated so the
+ * caller's cyclomatic/cognitive complexity stays under the ratchet limit.
  * Returns null when the gate does not apply (caller falls through to the
  * normal subscription-quota evaluation).
  */
@@ -283,7 +352,9 @@ function resolveCodexPaidCreditsGate(
 }
 
 /**
- * Evaluate model-scoped subscription windows; null selects the aggregate fallback.
+ * Per-window cutoff branch of evaluateQuotaCutoff, isolated so the caller's
+ * cyclomatic complexity stays under the ratchet limit. Returns null when the
+ * quota has no per-window data (caller falls through to the legacy path).
  */
 function windowedQuotaCutoffResult(
   quota: QuotaInfo,
@@ -315,6 +386,18 @@ export function evaluateQuotaCutoff(
   const paidCreditsGate = resolveCodexPaidCreditsGate(quota, scope);
   if (paidCreditsGate) return paidCreditsGate;
   if (!quota) return { proceed: true };
+  // Explicit local quota opt-outs leave billing eligibility to the upstream service.
+  if (
+    isClaudeExtraUsageAllowed(scope?.provider, scope?.providerSpecificData) ||
+    isCodexQuotaFilteringDisabled(scope?.provider, scope?.providerSpecificData)
+  ) {
+    return { proceed: true, quotaPercent: quota.percentUsed };
+  }
+  // #14359 — same escape as the dispatch-time predicates: a recent success is not exhaustion.
+  if (scope?.connectionId && isQuotaHealthy(scope.connectionId)) {
+    return { proceed: true, quotaPercent: quota.percentUsed };
+  }
+
   const windowedResult = windowedQuotaCutoffResult(quota, thresholds, scope);
   if (windowedResult) return windowedResult;
 
@@ -357,6 +440,7 @@ export async function preflightQuota(
     provider,
     requestedModel,
     providerSpecificData: connection.providerSpecificData,
+    connectionId,
   };
   // No legacy enable-flag gate here — the caller decides when to invoke us
   // (see file-level docstring). When there's no fetcher we proceed silently.
@@ -380,6 +464,7 @@ export async function preflightQuota(
   if (!quota) {
     return evaluateQuotaCutoff(null, thresholds, scope);
   }
+
   const windows = quota.windows;
   if (windows && Object.keys(windows).length > 0) {
     const scopedWindows = windowsForScope(windows, scope);
@@ -409,20 +494,46 @@ export async function preflightQuota(
     );
     return decision;
   }
-  if (windows && Object.keys(windows).length > 0) return decision;
+  if (
+    (windows && Object.keys(windows).length > 0) ||
+    (isCodexPaidCreditsEnabled(provider, connection.providerSpecificData, requestedModel) &&
+      hasCodexPaidCredits(quota.paidCredits))
+  ) {
+    return decision;
+  }
 
-  // Legacy fetchers expose only aggregate usage. This is diagnostic only:
-  // evaluateQuotaCutoff owns every decision, including paid-credit continuation.
+  // Legacy single-signal path for fetchers that don't expose per-window data.
+  const minRemainingPercent = resolveOrDefault(
+    thresholds?.resolveMinRemainingPercent,
+    null,
+    DEFAULT_MIN_REMAINING_PERCENT
+  );
   const warnRemainingPercent = resolveOrDefault(
     thresholds?.resolveWarnRemainingPercent,
     null,
     DEFAULT_WARN_REMAINING_PERCENT
   );
-  const remainingPercent = remainingPercentFrom(quota.percentUsed);
+
+  const { percentUsed } = quota;
+  const remainingPercent = remainingPercentFrom(percentUsed);
+
+  if (isRemainingAtOrBelowThreshold(remainingPercent, minRemainingPercent)) {
+    console.info(
+      `[QuotaPreflight] ${provider}/${connectionId}: ${remainingPercent.toFixed(1)}% remaining — switching (cutoff ${minRemainingPercent}%)`
+    );
+    return {
+      proceed: false,
+      reason: "quota_exhausted",
+      quotaPercent: percentUsed,
+      resetAt: quota.resetAt ?? null,
+    };
+  }
+
   if (isRemainingAtOrBelowThreshold(remainingPercent, warnRemainingPercent)) {
     console.warn(
       `[QuotaPreflight] ${provider}/${connectionId}: ${remainingPercent.toFixed(1)}% remaining — approaching cutoff`
     );
   }
-  return decision;
+
+  return { proceed: true, quotaPercent: percentUsed };
 }

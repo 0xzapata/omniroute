@@ -26,6 +26,7 @@ import {
 } from "@/app/api/v1/vscode/[token]/serviceTierVariants";
 import { getFamilyFirstPublishedModelId } from "@/app/api/v1/vscode/[token]/familyFirstModelIds";
 import { isUsableChatModel } from "@/app/api/v1/vscode/[token]/usableChatModel";
+import { filterUpstreamResponseHeaderEntries } from "@omniroute/open-sse/utils/upstreamResponseHeaders.ts";
 
 type CatalogModelEntry = {
   id?: string;
@@ -331,10 +332,16 @@ export async function getVscodeModelsCatalogResponse(
 ): Promise<VscodeModelsCatalogResponse> {
   const response = await getUnifiedModelsResponse(request);
   const body = (await response.json()) as { data?: CatalogModelEntry[] };
+  // Consumers re-serialize `body` (data filtered/expanded), so the catalog's
+  // stale content-length/content-encoding/transfer-encoding no longer matches
+  // — forwarding it hangs the client (#14092).
+  const headers = Object.fromEntries(
+    filterUpstreamResponseHeaderEntries(response.headers.entries())
+  );
   return {
     status: response.status,
     headers: {
-      ...Object.fromEntries(response.headers.entries()),
+      ...headers,
       ...VSCODE_CATALOG_CACHE_HEADERS,
     },
     body: {

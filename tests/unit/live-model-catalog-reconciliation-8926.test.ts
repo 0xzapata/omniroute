@@ -23,8 +23,9 @@ const { getProviderModels } = await import("../../open-sse/config/providerModels
 
 const PROVIDER = "github";
 const CONNECTION_ID = "github-live-catalog-8926";
-const LIVE_MODEL = "gpt-4.1";
-const PHANTOM_MODEL = "oswe-vscode-prime";
+const LIVE_MODEL = "gpt-5.6-sol";
+// Present in both Copilot static catalogs, but absent from this connection's live discovery.
+const PHANTOM_MODEL = "claude-opus-4.8-fast";
 
 function seedProviderCatalog(
   providerId: string,
@@ -199,5 +200,33 @@ test("#8926: partial passthrough discovery remains non-authoritative", async () 
   assert.deepEqual(
     catalog.models.map((model) => model.id),
     ["gpt-5.6-luna"]
+  );
+});
+
+test("#12866: agy CLI catalog is visible after parseModel folds the prefix to antigravity", async () => {
+  // Production shape: combo steps are `agy/gemini-3.8-flash-high` on CLI-card
+  // rows. parseModel canonicalizes `agy/` → `antigravity` (#8013), then live
+  // authority looks up the IDE catalog keyed `antigravity:<id>`. Those two
+  // catalogs are distinct stored ids — CLI has flash-high, IDE does not —
+  // so the request 400s even though the pinned agy connection serves the model.
+  await seedProviderCatalog("agy", "agy-cli-catalog-12866", ["gemini-3.8-flash-high"]);
+  await seedProviderCatalog("antigravity", "antigravity-ide-catalog-12866", [
+    "gemini-3.8-flash-tiered",
+  ]);
+
+  const resolved = await getModelInfo("agy/gemini-3.8-flash-high");
+
+  assert.equal(resolved.errorType, undefined, resolved.errorMessage);
+  assert.equal(resolved.model, "gemini-3.8-flash-high");
+  assert.ok(
+    resolved.provider === "agy" || resolved.provider === "antigravity",
+    `expected agy/antigravity, got ${resolved.provider}`
+  );
+
+  const antigravityCatalog = await getActiveSyncedCatalog("antigravity");
+  assert.equal(
+    antigravityCatalog.models.some((model) => model.id === "gemini-3.8-flash-high"),
+    true,
+    "antigravity live lookup must union the sibling agy CLI catalog"
   );
 });

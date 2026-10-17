@@ -1,7 +1,15 @@
 "use client";
 
-import { useRef, type Dispatch, type SetStateAction } from "react";
-import { extractApiErrorMessage } from "@/shared/http/apiErrorMessage";
+/**
+ * useCodexPaidCreditsToggle — extracted from useProviderConnections (file-size
+ * ratchet: useProviderConnections.ts is frozen; a new full handler pushed it
+ * over the cap) to keep the god-file from growing, mirroring the
+ * useReorderByAvailability precedent in this same directory.
+ *
+ * Owns the single-connection toggle for the opt-in "allow paid Codex
+ * credits after subscription quota exhaustion" setting.
+ */
+
 import type { ConnectionRowConnection } from "../components/ConnectionRow";
 import { providerText, type ProviderMessageTranslator } from "../providerCredentialText";
 
@@ -13,45 +21,51 @@ interface CodexPaidCreditsToggleNotifier {
 
 export interface UseCodexPaidCreditsToggleParams {
   connections: ConnectionRowConnection[];
-  setConnections: Dispatch<SetStateAction<ConnectionRowConnection[]>>;
+  setConnections: (
+    updater:
+      ConnectionRowConnection[] | ((prev: ConnectionRowConnection[]) => ConnectionRowConnection[])
+  ) => void;
   notify: CodexPaidCreditsToggleNotifier;
   t: ProviderMessageTranslator;
 }
 
-/** Persist billing consent once per account while a save is pending. */
+export interface UseCodexPaidCreditsToggleReturn {
+  handleToggleCodexPaidCredits: (connectionId: string, enabled: boolean) => Promise<void>;
+}
+
 export function useCodexPaidCreditsToggle({
   connections,
   setConnections,
   notify,
   t,
-}: UseCodexPaidCreditsToggleParams) {
-  const saving = useRef(new Set<string>());
+}: UseCodexPaidCreditsToggleParams): UseCodexPaidCreditsToggleReturn {
   const handleToggleCodexPaidCredits = async (connectionId: string, enabled: boolean) => {
-    if (saving.current.has(connectionId)) return;
-    saving.current.add(connectionId);
     try {
       const target = connections.find((connection) => connection.id === connectionId);
       if (!target) return;
+
+      const providerSpecificData =
+        target.providerSpecificData && typeof target.providerSpecificData === "object"
+          ? target.providerSpecificData
+          : {};
 
       const res = await fetch(`/api/providers/${connectionId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          providerSpecificData: { allowPaidCredits: enabled },
+          providerSpecificData: { ...providerSpecificData, allowPaidCredits: enabled },
         }),
       });
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         notify.error(
-          extractApiErrorMessage(
-            data,
+          data.error ||
             providerText(
               t,
               "failedUpdateCodexPaidCredits",
               "Failed to update Codex paid-credit policy"
             )
-          )
         );
         return;
       }
@@ -83,8 +97,6 @@ export function useCodexPaidCreditsToggle({
       notify.error(
         providerText(t, "failedUpdateCodexPaidCredits", "Failed to update Codex paid-credit policy")
       );
-    } finally {
-      saving.current.delete(connectionId);
     }
   };
 

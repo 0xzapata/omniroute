@@ -9,6 +9,7 @@ import { parseModelFromRegistry } from "./registryUtils.ts";
 import { RUNWAYML_SUPPORTED_VIDEO_MODELS } from "./runway.ts";
 import { SEGMIND_VIDEO_MODELS } from "./providers/registry/segmind/videoModels.ts";
 import { toRegistryVideoModels } from "../services/adobeFireflyModels.ts";
+import { toRegistryVideoModels as toSyntxVideoModels } from "../services/syntxMediaCatalog.ts";
 
 interface VideoModel {
   id: string;
@@ -16,6 +17,8 @@ interface VideoModel {
   isMarket?: boolean;
   supportedSizes?: string[];
   mediaCapabilities?: Record<string, unknown>;
+  /** Override the provider-level job preset for this model. */
+  jobPreset?: string;
 }
 
 interface VideoProvider {
@@ -23,6 +26,8 @@ interface VideoProvider {
   alias?: string;
   baseUrl: string;
   statusUrl?: string;
+  /** Provider file-retrieval endpoint (MiniMax returns a file_id, not a URL, on success). */
+  filesUrl?: string;
   authType: string;
   authHeader: string;
   format: string;
@@ -47,6 +52,16 @@ export const VIDEO_PROVIDERS: Record<string, VideoProvider> = {
       {
         id: "agnes-video-v2.0",
         name: "Agnes Video V2.0",
+      },
+      {
+        id: "agnes-video-2.5-flash",
+        name: "Agnes Video 2.5 Flash",
+        jobPreset: "agnes-video-2.5-job",
+      },
+      {
+        id: "agnes-video-2.5",
+        name: "Agnes Video 2.5",
+        jobPreset: "agnes-video-2.5-job",
       },
     ],
   },
@@ -206,13 +221,10 @@ export const VIDEO_PROVIDERS: Record<string, VideoProvider> = {
     statusUrl: "https://api.minimax.io/v1/query/video_generation",
     authType: "apikey",
     authHeader: "bearer",
+    // Documented v1 transport: create → query?task_id → files/retrieve?file_id →
+    // download_url. Dispatched by videoGeneration/minimaxHandler.ts.
+    filesUrl: "https://api.minimax.io/v1/files/retrieve",
     format: "minimax-video",
-    // Живая проверка 2026-08-30: 400 Unsupported video format на всех трёх
-    // моделях Hailuo. Свой submit → query API, не покрытый job-пресетами.
-    unsupported: true,
-    unsupportedReason:
-      "MiniMax video uses its own submit/query transport that the dispatcher " +
-      "does not implement yet. Generate video via another provider for now.",
     models: [
       { id: "MiniMax-Hailuo-2.3", name: "Hailuo 2.3" },
       { id: "MiniMax-Hailuo-02", name: "Hailuo 02" },
@@ -468,6 +480,15 @@ export const VIDEO_PROVIDERS: Record<string, VideoProvider> = {
       "NanoGPT video endpoint returns 404 — no video route is published under " +
       "/api/v1/video(s)/generations. Use another video provider.",
     models: [{ id: "default", name: "NanoGPT Video" }],
+  },
+  syntx: {
+    id: "syntx",
+    alias: "stx",
+    baseUrl: "https://api.syntx.ai/api/v1/video/generate",
+    authType: "apikey",
+    authHeader: "bearer",
+    format: "syntx-video",
+    models: toSyntxVideoModels(),
   },
 };
 

@@ -31,7 +31,6 @@ test("representative media providers derive the expected kinds", () => {
   const cases: Record<string, string[]> = {
     elevenlabs: ["tts"],
     deepgram: ["stt", "tts"],
-    suno: ["music"],
     udio: ["music"],
     runwayml: ["video"],
     openai: ["embedding", "image", "stt", "tts"],

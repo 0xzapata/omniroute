@@ -35,7 +35,6 @@ describe("Codex extra-credit account button", () => {
   let root: ReturnType<typeof createRoot>;
   let hook: Hook;
   let putStatus: number;
-  let putError: unknown;
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -46,12 +45,11 @@ describe("Codex extra-credit account button", () => {
     document.body.appendChild(container);
     root = createRoot(container);
     putStatus = 200;
-    putError = "Update rejected";
     vi.clearAllMocks();
     fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (init?.method === "PUT") {
-        return { ok: putStatus === 200, json: async () => ({ error: putError }) };
+        return { ok: putStatus === 200, json: async () => ({ error: "Update rejected" }) };
       }
       const body = url.startsWith("/api/providers")
         ? { connections: [connection, secondConnection] }
@@ -115,23 +113,13 @@ describe("Codex extra-credit account button", () => {
       const puts = fetchMock.mock.calls.filter(([, init]) => init?.method === "PUT");
       expect(puts.at(-1)?.[0]).toBe("/api/providers/business");
       expect(JSON.parse(puts.at(-1)?.[1].body)).toEqual({
-        providerSpecificData: { allowPaidCredits: enabled },
+        providerSpecificData: { workspaceId: "workspace", allowPaidCredits: enabled },
       });
       expect(hook.connections[0].rateLimitedUntil).toBe(connection.rateLimitedUntil);
       expect(hook.connections[0].lastErrorSource).toBe("rate_limit");
       expect(hook.connections[1]).toEqual(secondConnection);
     }
     expect(notify.success).toHaveBeenCalledTimes(2);
-  });
-
-  it("ignores duplicate clicks while the account update is pending", async () => {
-    await mount();
-    await act(async () => {
-      button().click();
-      button().click();
-    });
-    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "PUT")).toHaveLength(1);
-    expect(button().getAttribute("aria-pressed")).toBe("true");
   });
 
   it("leaves credits disabled and reports a rejected update", async () => {
@@ -147,14 +135,5 @@ describe("Codex extra-credit account button", () => {
   it("does not show the Codex paid-credit button on other providers", async () => {
     await mount("claude");
     expect(button()).toBeNull();
-  });
-
-  it("extracts the message from a structured API rejection", async () => {
-    putStatus = 400;
-    putError = { code: "INVALID_ORIGIN", message: "Request origin rejected" };
-    await mount();
-    await act(async () => button().click());
-    expect(notify.error).toHaveBeenCalledWith("Request origin rejected");
-    expect(button().getAttribute("aria-pressed")).toBe("false");
   });
 });

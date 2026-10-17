@@ -109,7 +109,9 @@ export function stripCodexChildCooldownsFromConnection(
     ).run(JSON.stringify(stripCodexChildCooldownFields(providerSpecificData)), now, id);
     return true;
   })();
-  if (wrote) invalidateDbCache("connections");
+  // Touches only rate_limited_until and codex-scope cooldown keys inside
+  // provider_specific_data — none are read by the /v1/models catalog builder.
+  if (wrote) invalidateDbCache("connections", id, { skipModelCatalog: true });
 }
 
 /**
@@ -199,7 +201,9 @@ export async function updateCodexScopedQuotaState(
     return nextProviderSpecificData;
   })();
 
-  if (persisted) invalidateDbCache("connections");
+  // Codex-scope quota/cooldown keys only (codexQuotaState*, codexExhaustedWindow*,
+  // codexScopeRateLimit*) — routing metadata the /v1/models builder never reads.
+  if (persisted) invalidateDbCache("connections", id, { skipModelCatalog: true });
   return persisted;
 }
 
@@ -295,7 +299,9 @@ export function liftCodexScopeCooldownOnHeadroom(id: string, scope: "codex" | "s
     return true;
   })();
 
-  if (wrote) invalidateDbCache("connections");
+  // Codex-scope cooldown/exhaustion keys only — routing metadata the
+  // /v1/models builder never reads.
+  if (wrote) invalidateDbCache("connections", id, { skipModelCatalog: true });
   return wrote;
 }
 

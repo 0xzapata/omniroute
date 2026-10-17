@@ -17,6 +17,9 @@ export interface HarvestResult {
   hasCredential: boolean;
 }
 
+/** Header name the CDP bridge (docker/vnc-browser/chromium/cdp-bridge.py) requires (#12571). */
+const CDP_TOKEN_HEADER = "X-Omni-Cdp-Token";
+
 interface Pending {
   resolve: (value: any) => void;
   reject: (error: Error) => void;
@@ -36,8 +39,8 @@ class CdpClient {
   private sessionId: string | null = null;
   private closed = false;
 
-  constructor(wsUrl: string) {
-    this.ws = new WebSocket(wsUrl);
+  constructor(wsUrl: string, cdpToken: string) {
+    this.ws = new WebSocket(wsUrl, { headers: { [CDP_TOKEN_HEADER]: cdpToken } });
     this.ws.on("message", (data) => this.onMessage(data));
     this.ws.on("close", () => this.rejectAll(new Error("CDP websocket closed")));
     this.ws.on("error", (error) => this.rejectAll(toError(error, "CDP websocket error")));
@@ -252,7 +255,11 @@ class CdpClient {
   }
 }
 
-export async function waitForCdpReady(cdpPort: number, timeoutMs: number): Promise<void> {
+export async function waitForCdpReady(
+  cdpPort: number,
+  timeoutMs: number,
+  cdpToken: string
+): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   let lastError: Error | null = null;
 
@@ -262,7 +269,8 @@ export async function waitForCdpReady(cdpPort: number, timeoutMs: number): Promi
     try {
       const version = await fetchJson(
         `http://127.0.0.1:${cdpPort}/json/version`,
-        controller.signal
+        controller.signal,
+        cdpToken
       );
       if (version?.webSocketDebuggerUrl) return;
       lastError = new Error("CDP endpoint did not return a websocket URL");
@@ -280,20 +288,25 @@ export async function waitForCdpReady(cdpPort: number, timeoutMs: number): Promi
 export async function harvestFromContainer(
   cdpPort: number,
   provider: VncProviderEntry,
-  timeoutMs = 20_000
+  timeoutMs = 20_000,
+  cdpToken = ""
 ): Promise<HarvestResult> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   let client: CdpClient | null = null;
 
   try {
-    const version = await fetchJson(`http://127.0.0.1:${cdpPort}/json/version`, controller.signal);
+    const version = await fetchJson(
+      `http://127.0.0.1:${cdpPort}/json/version`,
+      controller.signal,
+      cdpToken
+    );
     const debuggerUrl = version?.webSocketDebuggerUrl;
     if (typeof debuggerUrl !== "string" || !debuggerUrl) {
       throw new Error("No CDP websocket endpoint from browser container");
     }
 
-    client = new CdpClient(rewriteDebuggerUrl(debuggerUrl, cdpPort));
+    client = new CdpClient(rewriteDebuggerUrl(debuggerUrl, cdpPort), cdpToken);
     await client.ready(Math.min(timeoutMs, 15_000), controller.signal);
 
     const origin = new URL(provider.url).origin;
@@ -403,8 +416,8 @@ function safeOrigin(value: string | undefined): string | null {
   }
 }
 
-async function fetchJson(url: string, signal: AbortSignal): Promise<any> {
-  const response = await fetch(url, { signal });
+async function fetchJson(url: string, signal: AbortSignal, cdpToken = ""): Promise<any> {
+  const response = await fetch(url, { signal, headers: { [CDP_TOKEN_HEADER]: cdpToken } });
   if (!response.ok) throw new Error(`CDP endpoint returned HTTP ${response.status}`);
   return response.json();
 }

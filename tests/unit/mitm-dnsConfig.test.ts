@@ -75,7 +75,10 @@ function assertHostsWriteSpawn(call: { command: string; args: string[] }): void 
   assert.ok(argv.includes("tee"), `should write hosts via tee (got: ${argv.join(" ")})`);
   assert.ok(argv.includes("-a"), `tee should append, not truncate (got: ${argv.join(" ")})`);
   if (call.command === "sudo") {
-    assert.ok(call.args.includes("-S"), "sudo should use -S flag for password stdin");
+    // GHSA-cqwr-7mqw-chr9: the password goes to a separate `sudo -S -v`; the writer runs
+    // as `sudo -n tee …` so the password can never reach tee's stdin (and /etc/hosts).
+    assert.ok(call.args.includes("-n"), "the hosts writer should run as sudo -n");
+    assert.ok(!call.args.includes("-S"), "the hosts writer must not read a password on stdin");
   } else {
     assert.equal(
       call.command,
@@ -83,6 +86,11 @@ function assertHostsWriteSpawn(call: { command: string; args: string[] }): void 
       `unelevated write should invoke tee directly (got ${call.command})`
     );
   }
+}
+
+/** The spawn that writes the hosts file (the sudo path runs a `sudo -v` first). */
+function hostsWriteCall(calls: Array<{ command: string; args: string[] }>) {
+  return calls.find((call) => [call.command, ...call.args].includes("tee")) ?? calls[0];
 }
 
 function guardEnv(value: string | undefined): () => void {
@@ -126,7 +134,7 @@ test("addDNSEntries: proceeds when env var is unset", async () => {
   try {
     await addDNSEntries(["__test_add_unset__.example.com"], "fake-pw");
     assert.ok(spawnCalls.length > 0, "spawn should be called when guard is off");
-    assertHostsWriteSpawn(spawnCalls[0]);
+    assertHostsWriteSpawn(hostsWriteCall(spawnCalls));
   } finally {
     restore();
   }
@@ -139,7 +147,7 @@ test("addDNSEntries: proceeds when OMNIROUTE_SKIP_DNS_WRITE=0", async () => {
   try {
     await addDNSEntries(["__test_add_0__.example.com"], "fake-pw");
     assert.ok(spawnCalls.length > 0, "spawn should be called for value '0'");
-    assertHostsWriteSpawn(spawnCalls[0]);
+    assertHostsWriteSpawn(hostsWriteCall(spawnCalls));
   } finally {
     restore();
   }
@@ -152,7 +160,7 @@ test("addDNSEntries: guard does NOT trigger for value 'true'", async () => {
   try {
     await addDNSEntries(["__test_add_true__.example.com"], "fake-pw");
     assert.ok(spawnCalls.length > 0, "spawn should be called for value 'true'");
-    assertHostsWriteSpawn(spawnCalls[0]);
+    assertHostsWriteSpawn(hostsWriteCall(spawnCalls));
   } finally {
     restore();
   }

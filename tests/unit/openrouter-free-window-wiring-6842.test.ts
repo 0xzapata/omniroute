@@ -137,7 +137,7 @@ test("DefaultExecutor(openrouter) self-corrects the free window from X-RateLimit
 
 // ─── 2. ENFORCE: exhausted free window short-circuits the quota preflight ─
 
-test("fetchOpenrouterQuotaWithFreeWindowPreflight returns limitReached for an exhausted :free model WITHOUT calling fetch (RED without wiring)", async () => {
+test("fetchOpenrouterQuotaWithFreeWindowPreflight returns limitReached for an exhausted :free model after a tier-refresh fetch (RED without wiring)", async () => {
   const connectionId = `openrouter-enforce-${Date.now()}`;
   const accountKey = resolveAccountKey(connectionId, {});
 
@@ -160,10 +160,14 @@ test("fetchOpenrouterQuotaWithFreeWindowPreflight returns limitReached for an ex
     requestedModel: "x-ai/grok-4-fast:free",
   });
 
-  assert.equal(
-    fetchCalls,
-    0,
-    "an exhausted free window must short-circuit BEFORE any /key or /credits call"
+  // Tier-refresh behavior: an exhausted window refreshes the $10+ purchase
+  // tier from quota (cached when fresh, fetched otherwise) before verdict —
+  // otherwise a stale 50-counter hides the signal that would un-exhaust it
+  // (stuck until UTC midnight). This mock returns no purchase signal, so the
+  // verdict stays exhausted after the refresh round-trip.
+  assert.ok(
+    fetchCalls > 0,
+    "an exhausted free window must refresh the purchase tier from quota before verdict"
   );
   assert.ok(quota, "quota should be a limitReached result, not null");
   assert.equal(

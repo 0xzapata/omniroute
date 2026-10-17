@@ -254,6 +254,13 @@ omniroute tokens scopes               # explain the three scopes
 `tokens` commands require an **admin** credential. You can also manage tokens in
 the dashboard under **Settings → Access Tokens** (create, revoke, copy-once).
 
+A token can never be minted with more privilege than its creator holds. An
+`admin` token can only be created by the operator — the dashboard session, the
+local CLI on the server itself, `omniroute connect` with the password, or an
+instance with login disabled. Machine credentials (an `admin` access token,
+or an API key with the `manage`/`admin` scope) can mint `write` and `read`
+tokens only; asking them for `--scope admin` returns `403`.
+
 ---
 
 ## Configuring a coding CLI from the remote catalog
@@ -337,6 +344,11 @@ opencode -m omniroute/glm/glm-5.2 "..."          # export OMNIROUTE_API_KEY firs
 > (now remote-aware via `--remote`) installs `@omniroute/opencode-plugin`.
 > `setup-opencode` is the lightweight openai-compatible alternative. The API key
 > is referenced via `{env:OMNIROUTE_API_KEY}` — never written to disk.
+>
+> On OpenCode v2, use `@omniroute/opencode-plugin-v2` instead: same catalog,
+> different loader contract. It reads the key from OpenCode's own credential
+> store when the integration is connected, so a remote gateway needs no key in
+> `opencode.json` at all.
 
 ---
 
@@ -388,19 +400,23 @@ omniroute contexts remove stg --yes
 > revoke the token on the server with `omniroute tokens revoke <id>` to actually
 > kill access.
 
-**Export / import** contexts (e.g. to move them between machines). New contexts persist
-only a keychain reference; credentials are not copied into the export when the OS
-keychain is available:
+**Export / import** contexts (e.g. to move them between machines). Exports omit
+credentials by default, including credentials stored by the file fallback. Use
+`--include-secrets` explicitly when a portable credential-bearing backup is needed:
 
 ```bash
-omniroute contexts export --out contexts.json     # default: stdout
+omniroute contexts export --out contexts.json     # redacted; default destination: stdout
+omniroute contexts export --include-secrets --out private-contexts.json
 omniroute contexts import contexts.json            # overwrite; --merge to keep existing
 omniroute contexts migrate --yes                  # move legacy plaintext tokens to keychain
 ```
 
-On headless systems without a usable OS keychain, the CLI falls back to
-`config.json` with mode `0600` and prints a one-time warning. Treat exports from
-that fallback (and any legacy config before migration) as secret material.
+`--include-secrets` resolves keychain references before exporting and fails if any
+referenced credential cannot be read. `--no-secrets` always takes precedence.
+Export files are written atomically with mode `0600`. Treat an explicit
+secret-bearing export as secret material. On headless systems without a usable OS
+keychain, the CLI falls back to `config.json` with mode `0600` and prints a
+one-time warning; a default export remains redacted in this mode.
 
 ---
 

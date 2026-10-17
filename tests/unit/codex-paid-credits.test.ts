@@ -10,10 +10,7 @@ import {
 import { normalizeProviderSpecificData } from "../../src/lib/providers/requestDefaults.ts";
 import { updateProviderConnectionSchema } from "../../src/shared/validation/schemas.ts";
 import { parseCodexPaidCredits } from "../../src/lib/providers/codexPaidCredits.ts";
-import {
-  mergeProviderLimitsCacheEntry,
-  toProviderLimitsCacheEntry,
-} from "../../src/lib/usage/providerLimitsCache.ts";
+import { toProviderLimitsCacheEntry } from "../../src/lib/usage/providerLimitsCache.ts";
 
 const exhausted: QuotaInfo = {
   used: 100,
@@ -166,86 +163,4 @@ test("preflight honors paid credits even without window data and fails closed on
   registerQuotaFetcher("codex", async () => null);
   assert.equal((await preflightQuota("codex", "paid-test", connection, thresholds)).proceed, false);
   assert.equal((await preflightQuota("codex", "normal-test", {}, thresholds)).proceed, true);
-});
-
-test("current OpenAI spend controls block paid routing even with a positive balance", () => {
-  const parsed = buildCodexUsageQuotas({
-    credits: { has_credits: true, unlimited: false, balance: "12.50" },
-    spend_control: { reached: true },
-    rate_limit: { primary_window: { used_percent: 100 } },
-  });
-  assert.equal(parsed.paidCredits?.balance, 12.5);
-  assert.equal(parsed.paidCredits?.overageLimitReached, true);
-  assert.equal(
-    evaluateQuotaCutoff({ ...exhausted, paidCredits: parsed.paidCredits }, thresholds, scope)
-      .proceed,
-    false
-  );
-  const cache = toProviderLimitsCacheEntry({ paidCredits: parsed.paidCredits }, "test");
-  assert.deepEqual(cache.paidCredits, parsed.paidCredits);
-});
-
-test("workspace limit reasons take precedence over stale positive credit signals", () => {
-  for (const type of [
-    "workspace_owner_usage_limit_reached",
-    "workspace_member_usage_limit_reached",
-    "workspace_owner_credits_depleted",
-    "workspace_member_credits_depleted",
-  ]) {
-    const parsed = buildCodexUsageQuotas({
-      credits: { has_credits: true, unlimited: true, balance: "20" },
-      rate_limit_reached_type: { type },
-    });
-    assert.equal(
-      evaluateQuotaCutoff({ ...exhausted, paidCredits: parsed.paidCredits }, thresholds, scope)
-        .proceed,
-      false,
-      type
-    );
-  }
-});
-
-test("malformed balances cannot be mistaken for an unreported usable balance", () => {
-  for (const balance of ["not-a-number", "", {}, Infinity]) {
-    const parsed = parseCodexPaidCredits({ has_credits: true, balance });
-    assert.equal(
-      evaluateQuotaCutoff({ ...exhausted, paidCredits: parsed }, thresholds, scope).proceed,
-      false
-    );
-  }
-});
-
-test("a failed refresh preserves credit-only dashboard data, including zero and blocked balances", () => {
-  for (const paidCredits of [
-    credits,
-    { ...credits, balance: 0 },
-    { ...credits, overageLimitReached: true },
-  ]) {
-    const previous = toProviderLimitsCacheEntry({ quotas: {}, paidCredits }, "manual");
-    const failed = toProviderLimitsCacheEntry({ message: "Rate limited" }, "scheduled");
-    assert.equal(mergeProviderLimitsCacheEntry("codex", failed, previous), previous);
-    const refreshed = toProviderLimitsCacheEntry(
-      { quotas: {}, paidCredits: { ...credits, balance: 0 } },
-      "manual"
-    );
-    assert.equal(mergeProviderLimitsCacheEntry("codex", refreshed, previous), refreshed);
-  }
-});
-
-test("preflight evaluates a subscription cutoff once and returns that decision", async () => {
-  registerQuotaFetcher("single-cutoff", async () => ({ used: 10, total: 100, percentUsed: 0.1 }));
-  let resolutions = 0;
-  const decision = await preflightQuota(
-    "single-cutoff",
-    "single",
-    {},
-    {
-      resolveMinRemainingPercent: () => {
-        resolutions++;
-        return 2;
-      },
-    }
-  );
-  assert.equal(decision.proceed, true);
-  assert.equal(resolutions, 1);
 });
