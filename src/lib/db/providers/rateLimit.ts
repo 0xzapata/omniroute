@@ -31,6 +31,11 @@ interface DbLike {
  * @param until - Epoch ms when the rate limit expires (null to clear)
  */
 export function setConnectionRateLimitUntil(connectionId: string, until: number | null): void {
+  // Guard: never persist a non-finite or already-expired timestamp. The TEXT
+  // column would store "NaN"/"Infinity" and pollute every future read. null
+  // is the only clear path (via clearConnectionRateLimit); past/zero
+  // timestamps are noops so an expired write cannot overwrite a live row.
+  if (until !== null && (!Number.isFinite(until) || until <= Date.now())) return;
   if (until == null) {
     stripCodexChildCooldownsFromConnection(connectionId, { alsoClearTopLevel: true });
     return;
@@ -39,7 +44,9 @@ export function setConnectionRateLimitUntil(connectionId: string, until: number 
   db.prepare(
     "UPDATE provider_connections SET rate_limited_until = ?, updated_at = ? WHERE id = ?"
   ).run(until, new Date().toISOString(), connectionId);
-  invalidateDbCache("connections");
+  // Routing-only write (rate_limited_until) — the /v1/models builder never reads
+  // it, so bust the connections read cache without dropping the catalog cache.
+  invalidateDbCache("connections", connectionId, { skipModelCatalog: true });
 }
 
 /**
@@ -231,7 +238,9 @@ export function clearStaleCrashCooldowns(): { cleared: number } {
     stmt.run(now, row.id);
   }
 
-  invalidateDbCache("connections");
+  // Routing/health-only fields (rate_limited_until, test_status, backoff_level,
+  // last_error*, error_code) — the /v1/models builder never reads them.
+  invalidateDbCache("connections", undefined, { skipModelCatalog: true });
 
   return { cleared: toReset.length };
 }
@@ -296,7 +305,9 @@ export async function clearConnectionErrorIfUnchanged(
     );
   const applied = (result.changes ?? 0) > 0;
   if (applied) {
-    invalidateDbCache("connections");
+    // Routing/health-only fields + codex-scope cooldown keys — none are read by
+    // the /v1/models builder (it only reads providerSpecificData.excludedModels).
+    invalidateDbCache("connections", id, { skipModelCatalog: true });
     bumpProxyConfigGeneration();
   }
   return applied;

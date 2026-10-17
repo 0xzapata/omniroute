@@ -184,6 +184,49 @@ describe("ccr protocol instruction (#8033)", () => {
     );
   });
 
+  it("recognizes MCP-gateway-namespaced tool names (#13781, #13897)", () => {
+    assert.equal(
+      callerSupportsCcrRetrieve({
+        tools: [
+          {
+            type: "function",
+            function: { name: "mcp__docker__omniroute__omniroute_ccr_retrieve" },
+          },
+        ],
+      }),
+      true,
+      "Docker MCP Toolkit style double-prefix name"
+    );
+    assert.equal(
+      callerSupportsCcrRetrieve({ tools: [{ name: "mcp__docker__omniroute_ccr_retrieve" }] }),
+      true,
+      "single mcp__<server>__<tool> namespace prefix"
+    );
+    assert.equal(
+      callerSupportsCcrRetrieve({ tools: [{ name: "omniroute.omniroute_ccr_retrieve" }] }),
+      true,
+      "dotted namespace prefix"
+    );
+    assert.equal(
+      callerSupportsCcrRetrieve({ tools: [{ name: "omniroute/omniroute_ccr_retrieve" }] }),
+      true,
+      "slashed namespace prefix"
+    );
+  });
+
+  it("does NOT loosen matching into a plain substring test", () => {
+    assert.equal(
+      callerSupportsCcrRetrieve({ tools: [{ name: "omniroute_ccr_retrieve_v2" }] }),
+      false,
+      "near-miss suffix must not match"
+    );
+    assert.equal(
+      callerSupportsCcrRetrieve({ tools: [{ name: "xomniroute_ccr_retrieve" }] }),
+      false,
+      "no separator boundary before the suffix must not match"
+    );
+  });
+
   it("injectCcrProtocolInstruction is a pure helper usable directly", () => {
     const messages: Msg[] = [{ role: "user", content: "hi" }];
     const withInstruction = injectCcrProtocolInstruction(messages, { tools: [RETRIEVE_TOOL_FLAT] });

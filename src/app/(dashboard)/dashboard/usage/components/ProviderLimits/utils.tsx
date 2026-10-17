@@ -251,6 +251,19 @@ function formatUnknownPlanLabel(raw: string) {
     .join(" ");
 }
 
+function matchCodexPlanTier(raw: string, upper: string) {
+  if (upper === "PROLITE") {
+    return { key: "pro", label: "Pro Standard", variant: "success", rank: 3, raw };
+  }
+  if (upper === "PRO" || upper === "PROEXTRA" || upper === "PRO_EXTRA") {
+    return { key: "pro", label: "Pro Extra", variant: "success", rank: 3, raw };
+  }
+  if (upper === "PROMAX" || upper === "PRO_MAX") {
+    return { key: "pro", label: "Pro Max", variant: "success", rank: 3, raw };
+  }
+  return null;
+}
+
 function matchClaudePlanTier(raw: string, upper: string) {
   const match = upper.match(/(?:DEFAULT_)?CLAUDE_(MAX|PRO|TEAM|ENTERPRISE|FREE)(?:_(\d+X))?/);
   if (!match) return null;
@@ -308,8 +321,10 @@ function matchFreePlanTier(raw: string, upper: string) {
 /**
  * Normalize provider-specific plan labels into a shared tier taxonomy.
  * Supported tiers: enterprise, business, team, ultra, pro, plus, lite, free, unknown.
+ * Codex's Pro Standard/Extra/Max variants are only recognized when `provider === "codex"`;
+ * a plain "Pro" of any other provider keeps the generic "Pro" label.
  */
-export function normalizePlanTier(plan) {
+export function normalizePlanTier(plan, provider?: string | null) {
   const raw = typeof plan === "string" ? plan.trim() : "";
   if (!raw) return unknownPlanTier(null);
 
@@ -321,6 +336,7 @@ export function normalizePlanTier(plan) {
   // Match Anthropic bootstrap strings (claude_max, default_claude_max_20x, etc.)
   // before the generic PRO/TEAM checks so underscored values don't fall through.
   const matched =
+    (provider === "codex" ? matchCodexPlanTier(raw, upper) : null) ||
     matchClaudePlanTier(raw, upper) ||
     matchKeywordPlanTier(raw, upper) ||
     matchTokenPlanTier(raw, upper) ||
@@ -337,9 +353,37 @@ export function computeCanEditCutoff(quotas: any[]): boolean {
   return quotas.some((q: any) => q && typeof q.name === "string" && !q.isCredits);
 }
 
+/**
+ * Providers that can redeem a banked reset credit: Codex reset credits and the GLM
+ * Coding Plan Reset Cards, which share the list/redeem contract behind different routes.
+ */
+export const RESET_CREDIT_PROVIDERS = [
+  "codex",
+  // grok-cli redeems through the same codex-reset-credit endpoint (tip of
+  // release/v3.8.51); kept here so the generalized gate below covers it.
+  "grok-cli",
+  "glm",
+  "glm-cn",
+  "glmt",
+  "zai",
+] as const;
+
+/** The redemption API backing a provider's reset credits, if supported. */
+export function getResetCreditEndpoint(provider: string): string | null {
+  if (provider === "codex" || provider === "grok-cli") return "/api/usage/codex-reset-credit";
+  if (["glm", "glm-cn", "glmt", "zai"].includes(provider)) {
+    return "/api/usage/glm-reset-card";
+  }
+  return null;
+}
+
+export function canProviderRedeemResetCredit(provider: string): boolean {
+  return (RESET_CREDIT_PROVIDERS as readonly string[]).includes(provider);
+}
+
 export function computeCanRedeemResetCredit(provider: string, quotas: any[]): boolean {
   return (
-    provider === "codex" &&
+    canProviderRedeemResetCredit(provider) &&
     quotas.some((q: any) => q?.isResetCredits && Number(q.creditCount ?? q.remaining ?? 0) > 0)
   );
 }
@@ -547,7 +591,7 @@ export function filterHiddenModelQuotas(
 // --- Per-user quota row visibility (upstream 9router#2371 port) ---------
 // Distinct from collectHiddenQuotaModelIds()/filterHiddenModelQuotas() above:
 // those hide rows for models the ADMIN hid in the model catalog. These hide rows
-// the OPERATOR clicked "hide" on for their own view (persisted per-provider in
+// the OPERATOR clicked "hide" on for their own view (persisted per-account in
 // settings.quotaVisibility), independent of model catalog state — e.g.
 // temporarily decluttering a quota card without editing the catalog.
 
@@ -557,34 +601,87 @@ export function getQuotaVisibilityKey(quota: any): string {
   return String(quota.modelKey || quota.name || "").trim();
 }
 
-function getProviderHiddenQuotaSet(
-  provider: string,
-  quotaVisibility: Record<string, { hidden?: string[] }> | undefined
+export type QuotaVisibilityMap = Record<string, { hidden?: string[] }>;
+
+/**
+ * Which visibility entry applies to a quota card. Rows are hidden PER ACCOUNT
+ * (connection id) so two accounts of the same provider with identically named
+ * rows (e.g. "Bonus Pack 1") stay independent (upstream 9router#4767). The
+ * provider id is only a legacy read fallback for preferences saved before the
+ * per-account keying. A bare string is treated as a legacy provider-only scope.
+ */
+export type QuotaVisibilityScope =
+  string | { connectionId?: string | null; provider?: string | null };
+
+function normalizeVisibilityScope(scope: QuotaVisibilityScope): {
+  connectionId: string;
+  provider: string;
+} {
+  if (typeof scope === "string") return { connectionId: "", provider: scope };
+  return {
+    connectionId: String(scope?.connectionId || "").trim(),
+    provider: String(scope?.provider || "").trim(),
+  };
+}
+
+/** Hidden row keys for `scope`: the account's own entry wins; else the legacy provider entry. */
+function getHiddenQuotaSet(
+  scope: QuotaVisibilityScope,
+  quotaVisibility: QuotaVisibilityMap | undefined
 ): Set<string> {
-  const hidden = quotaVisibility?.[provider]?.hidden;
+  const { connectionId, provider } = normalizeVisibilityScope(scope);
+  const entry =
+    (connectionId && quotaVisibility?.[connectionId]) ||
+    (provider && quotaVisibility?.[provider]) ||
+    undefined;
+  const hidden = entry?.hidden;
   return new Set(Array.isArray(hidden) ? hidden.map(String) : []);
 }
 
-/** Returns quotas for `provider` with any operator-hidden rows removed. */
+/**
+ * Returns the next visibility map after hiding/showing `key` for `scope`. Writes
+ * go to the account (connection id) entry, seeded from whatever currently
+ * applies (incl. the legacy provider entry) so the account's view does not jump,
+ * while other accounts keep reading the untouched legacy entry.
+ */
+export function buildNextQuotaVisibility(
+  quotaVisibility: QuotaVisibilityMap,
+  scope: QuotaVisibilityScope,
+  key: string,
+  hide: boolean
+): QuotaVisibilityMap {
+  const { connectionId, provider } = normalizeVisibilityScope(scope);
+  const targetKey = connectionId || provider;
+  if (!targetKey || !key) return quotaVisibility;
+  const hidden = getHiddenQuotaSet(scope, quotaVisibility);
+  if (hide) hidden.add(key);
+  else hidden.delete(key);
+  return {
+    ...quotaVisibility,
+    [targetKey]: { ...(quotaVisibility?.[targetKey] || {}), hidden: [...hidden] },
+  };
+}
+
+/** Returns quotas for `scope` with any operator-hidden rows removed. */
 export function filterQuotasByVisibility(
-  provider: string,
+  scope: QuotaVisibilityScope,
   quotas: any[] = [],
-  quotaVisibility: Record<string, { hidden?: string[] }> = {}
+  quotaVisibility: QuotaVisibilityMap = {}
 ): any[] {
   if (!Array.isArray(quotas) || quotas.length === 0) return [];
-  const hidden = getProviderHiddenQuotaSet(provider, quotaVisibility);
+  const hidden = getHiddenQuotaSet(scope, quotaVisibility);
   if (hidden.size === 0) return quotas;
   return quotas.filter((quota) => !hidden.has(getQuotaVisibilityKey(quota)));
 }
 
-/** Returns the subset of `quotas` for `provider` the operator hid (for the "Hidden: …" chip row). */
+/** Returns the subset of `quotas` for `scope` the operator hid (for the "Hidden: …" chip row). */
 export function getHiddenQuotaRows(
-  provider: string,
+  scope: QuotaVisibilityScope,
   quotas: any[] = [],
-  quotaVisibility: Record<string, { hidden?: string[] }> = {}
+  quotaVisibility: QuotaVisibilityMap = {}
 ): any[] {
   if (!Array.isArray(quotas) || quotas.length === 0) return [];
-  const hidden = getProviderHiddenQuotaSet(provider, quotaVisibility);
+  const hidden = getHiddenQuotaSet(scope, quotaVisibility);
   if (hidden.size === 0) return [];
   return quotas.filter((quota) => hidden.has(getQuotaVisibilityKey(quota)));
 }

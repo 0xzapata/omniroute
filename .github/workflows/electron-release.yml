@@ -84,6 +84,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
         env:
+          ONNXRUNTIME_NODE_INSTALL: "skip"
           NPM_CONFIG_LEGACY_PEER_DEPS: true
 
       - name: Build Next.js standalone
@@ -170,6 +171,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
         env:
+          ONNXRUNTIME_NODE_INSTALL: "skip"
           NPM_CONFIG_LEGACY_PEER_DEPS: true
 
       - name: Sanitize Windows home directory

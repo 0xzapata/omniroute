@@ -8,6 +8,12 @@
  */
 
 import { getProviderAlias } from "@/shared/constants/providers";
+import { isLoopbackNodeHost } from "@/shared/network/loopbackNodeHost";
+import { hasUnsafeModelIdSyntax } from "../utils/modelIdSafety.ts";
+import {
+  toRegistrySpeechModels as toSyntxSpeechModels,
+  toRegistryTranscriptionModels as toSyntxTranscriptionModels,
+} from "../services/syntxMediaCatalog.ts";
 
 interface AudioModel {
   id: string;
@@ -24,6 +30,7 @@ export interface AudioProvider {
    * id already is the credential key.
    */
   credentialProviderId?: string;
+  alias?: string;
   baseUrl: string;
   authType: string;
   authHeader: string;
@@ -138,7 +145,8 @@ export const AUDIO_TRANSCRIPTION_PROVIDERS: Record<string, AudioProvider> = {
     id: "assemblyai",
     baseUrl: "https://api.assemblyai.com/v2/transcript",
     authType: "apikey",
-    authHeader: "bearer",
+    // AssemblyAI expects `Authorization: <API_KEY>` with no "Bearer" scheme.
+    authHeader: "authorization",
     async: true,
     format: "assemblyai",
     models: [
@@ -260,6 +268,15 @@ export const AUDIO_TRANSCRIPTION_PROVIDERS: Record<string, AudioProvider> = {
       { id: "gpt-4o-transcription", name: "GPT-4o Transcription" },
     ],
   },
+  syntx: {
+    id: "syntx",
+    alias: "stx",
+    baseUrl: "https://api.syntx.ai/api/v1/audio/transcriptions",
+    authType: "apikey",
+    authHeader: "bearer",
+    format: "syntx-audio",
+    models: toSyntxTranscriptionModels(),
+  },
 };
 
 /**
@@ -365,7 +382,12 @@ export const AUDIO_SPEECH_PROVIDERS: Record<string, AudioProvider> = {
     authType: "apikey",
     authHeader: "bearer",
     format: "soniox-tts",
-    models: [{ id: "tts-rt-v1", name: "Soniox TTS RT v1" }],
+    // tts-rt-v1 is deprecated upstream (2026-08-31) and now served by tts-rt-v2;
+    // kept so existing clients that pin v1 still resolve.
+    models: [
+      { id: "tts-rt-v2", name: "Soniox TTS RT v2" },
+      { id: "tts-rt-v1", name: "Soniox TTS RT v1" },
+    ],
   },
 
   elevenlabs: {
@@ -463,9 +485,14 @@ export const AUDIO_SPEECH_PROVIDERS: Record<string, AudioProvider> = {
     authHeader: "bearer",
     format: "fishaudio",
     models: [
+      { id: "s2.1-pro-free", name: "Fish Speech S2.1 Pro Free" },
+      { id: "s2.1-pro", name: "Fish Speech S2.1 Pro" },
+      { id: "s2-pro", name: "Fish Speech S2 Pro" },
       { id: "s1", name: "Fish Speech S1" },
-      { id: "speech-1.6", name: "Fish Speech 1.6" },
-      { id: "speech-1.5", name: "Fish Speech 1.5" },
+      // Legacy ids kept for existing clients even though Fish no longer lists them
+      // in the current public model enum.
+      { id: "speech-1.6", name: "Fish Speech 1.6 (legacy)" },
+      { id: "speech-1.5", name: "Fish Speech 1.5 (legacy)" },
     ],
   },
 
@@ -596,6 +623,15 @@ export const AUDIO_SPEECH_PROVIDERS: Record<string, AudioProvider> = {
     format: "uc-tts",
     models: [{ id: "jade", name: "UC Voice (Jade)" }],
   },
+  syntx: {
+    id: "syntx",
+    alias: "stx",
+    baseUrl: "https://api.syntx.ai/api/v1/audio/speech",
+    authType: "apikey",
+    authHeader: "bearer",
+    format: "syntx-audio",
+    models: toSyntxSpeechModels(),
+  },
 };
 
 /**
@@ -628,34 +664,29 @@ export interface ProviderNodeRow {
   apiType?: string;
 }
 
-/** Hosts reachable only from the operator's machine/Docker network. */
-export function isLoopbackNodeHost(baseUrl: string): boolean {
-  try {
-    const hostname = new URL(baseUrl).hostname;
-    return (
-      hostname === "localhost" ||
-      hostname === "127.0.0.1" ||
-      /^172\.(1[6-9]|2[0-9]|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(hostname)
-    );
-  } catch {
-    return false;
-  }
-}
+/**
+ * Hosts reachable only from the operator's machine/Docker network.
+ * Re-exported from the shared module so the audio, rerank, and local-health-check paths
+ * agree on one definition (the shared version additionally rejects `user@host` URLs).
+ */
+export { isLoopbackNodeHost };
 
 /**
  * Build a dynamic AudioProvider from a provider_node DB entry.
  *
  * Loopback nodes keep `authType: "none"` — a local Ollama/LM Studio has no key and
- * must not be blocked on a missing credential. A remote node is the opposite: it is
- * only reachable when the operator opted in, and it must present the credential
- * stored on its connection, so it is built as an api-key provider keyed by the node
- * id (`credentialProviderId`) rather than by the caller-facing prefix.
+ * must not be blocked on a missing credential. Every other node — a remote node the
+ * operator opted into, or a hostname listed in `OMNIROUTE_LOCAL_PROVIDER_NODE_HOSTS`
+ * (#14635) — must present the credential stored on its connection, so it is built as an
+ * api-key provider keyed by the node id (`credentialProviderId`) rather than by the
+ * caller-facing prefix.
  */
 export function buildDynamicAudioProvider(node: ProviderNodeRow, audioPath: string): AudioProvider {
   if (!node.prefix || !node.baseUrl) {
     throw new Error(`Invalid provider_node: missing prefix or baseUrl`);
   }
   const baseUrl = node.baseUrl.replace(/\/+$/, "");
+  // Auth follows the built-in loopback class only (see above).
   const isLocal = isLoopbackNodeHost(node.baseUrl);
   return {
     id: node.prefix,
@@ -672,7 +703,7 @@ function parseAudioModel(
   registry: Record<string, AudioProvider>,
   dynamicProviders?: AudioProvider[]
 ): { provider: string | null; model: string | null } {
-  if (!modelStr) return { provider: null, model: null };
+  if (!modelStr || hasUnsafeModelIdSyntax(modelStr)) return { provider: null, model: null };
 
   // Phase 1: prefix match in hardcoded registry
   for (const [providerId] of Object.entries(registry)) {

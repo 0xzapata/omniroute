@@ -75,14 +75,14 @@ describe("OpencodeExecutor", () => {
     it('resolves "opencode" executor alias to opencode-zen config', async () => {
       const aliasExecutor = new OpencodeExecutor("opencode-zen");
       const result = await aliasExecutor.execute(createInput("deepseek-v4-flash-free"));
-      assert.equal(result.url, "https://opencode.ai/zen/v1/chat/completions");
-      assert.equal(fetchCalls[0].url, "https://opencode.ai/zen/v1/chat/completions");
+      assert.equal(result.url, "https://opencode.ai/inference/v1/chat/completions");
+      assert.equal(fetchCalls[0].url, "https://opencode.ai/inference/v1/chat/completions");
     });
 
     it("routes deepseek-v4-flash-free to chat completions", async () => {
       const result = await zenExecutor.execute(createInput("deepseek-v4-flash-free"));
-      assert.equal(result.url, "https://opencode.ai/zen/v1/chat/completions");
-      assert.equal(fetchCalls[0].url, "https://opencode.ai/zen/v1/chat/completions");
+      assert.equal(result.url, "https://opencode.ai/inference/v1/chat/completions");
+      assert.equal(fetchCalls[0].url, "https://opencode.ai/inference/v1/chat/completions");
     });
 
     it("includes deepseek-v4-flash-free in opencode-zen PROVIDER_MODELS", () => {
@@ -115,14 +115,14 @@ describe("OpencodeExecutor", () => {
       }
     });
 
-    it("routes opencode zen default models to chat completions", async () => {
+    it("routes free models to the inference surface and paid ones to zen", async () => {
       const minimaxResult = await zenExecutor.execute(createInput("minimax-m2.5-free"));
-      assert.equal(minimaxResult.url, "https://opencode.ai/zen/v1/chat/completions");
-      assert.equal(fetchCalls[0].url, "https://opencode.ai/zen/v1/chat/completions");
+      assert.equal(minimaxResult.url, "https://opencode.ai/inference/v1/chat/completions");
+      assert.equal(fetchCalls[0].url, "https://opencode.ai/inference/v1/chat/completions");
 
       const pickleResult = await zenExecutor.execute(createInput("big-pickle"));
-      assert.equal(pickleResult.url, "https://opencode.ai/zen/v1/chat/completions");
-      assert.equal(fetchCalls[1].url, "https://opencode.ai/zen/v1/chat/completions");
+      assert.equal(pickleResult.url, "https://opencode.ai/inference/v1/chat/completions");
+      assert.equal(fetchCalls[1].url, "https://opencode.ai/inference/v1/chat/completions");
 
       const nanoResult = await zenExecutor.execute(createInput("gpt-5-nano"));
       assert.equal(nanoResult.url, "https://opencode.ai/zen/v1/chat/completions");
@@ -236,13 +236,25 @@ describe("OpencodeExecutor", () => {
     });
 
     it("omits accept header when stream is false", async () => {
-      const result = await zenExecutor.execute(createInput("big-pickle", false));
+      // A paid model carries the client's non-streaming expectation through. A free-tier
+      // model does not: the gated tier only answers streamed requests, so the executor
+      // announces the event stream and the JSON body is rebuilt from it.
+      const result = await zenExecutor.execute(createInput("gpt-5.6-luna", false));
 
+      // #14384 routed gpt-5.6-* on Zen through /v1/responses, so #12633's rule applies:
+      // that endpoint authenticates with x-api-key, not Bearer. The point of THIS test is
+      // the absent Accept header — the auth header is asserted only so the bag is exact.
       assert.deepEqual(result.headers, {
-        Authorization: "Bearer test-key",
+        "x-api-key": "test-key",
         "Content-Type": "application/json",
       });
       assert.deepEqual(fetchCalls[0].options.headers, result.headers);
+    });
+
+    it("announces the event stream for a free-tier model even when the client wants JSON", async () => {
+      const result = await zenExecutor.execute(createInput("big-pickle", false));
+
+      assert.equal(result.headers["Accept"], "text/event-stream");
     });
 
     it("omits authorization when credentials are missing", async () => {

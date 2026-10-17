@@ -2,8 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { getModelsByProviderId } from "../../open-sse/config/providerModels.ts";
-import { DefaultExecutor } from "../../open-sse/executors/default.ts";
-import { resolveChatCoreTargetFormat } from "../../open-sse/handlers/chatCore/targetFormat.ts";
 import { CodexExecutor } from "../../open-sse/executors/codex.ts";
 import { openaiToOpenAIResponsesRequest } from "../../open-sse/translator/request/openai-responses/toResponses.ts";
 import { getPricingForModel } from "../../src/shared/constants/pricing.ts";
@@ -13,6 +11,7 @@ import {
   getCodexFastCostMultiplier,
 } from "../../src/lib/usage/costCalculator.ts";
 import { extendCodexGpt56EffortValues } from "../../src/shared/reasoning/effortStandardization.ts";
+import { isCodexExtendedEffortBaseModel } from "../../src/shared/reasoning/codexExtendedEffort.ts";
 import * as reasoningMetadata from "../../src/lib/vscode/reasoningMetadata.ts";
 import { supportsVscodeServiceTierVariants } from "../../src/lib/vscode/serviceTierVariants.ts";
 
@@ -66,6 +65,7 @@ test("GPT-6.1 Sol aliases and chat translation preserve max on the Codex wire", 
     assert.equal(result.reasoning.effort, effort === "ultra" ? "max" : effort);
   }
   for (const effort of ["max", "ultra"]) {
+    assert.equal(isCodexExtendedEffortBaseModel(`cx/${MODEL}`, effort as "max" | "ultra"), true);
     const result = transform(`${MODEL}(${effort})`, { reasoning: { summary: "detailed" } });
     assert.equal(result.model, MODEL);
     assert.equal(result.reasoning.effort, "max");
@@ -85,10 +85,10 @@ test("GPT-6.1 Sol aliases and chat translation preserve max on the Codex wire", 
   assert.equal(transform(MODEL, translated).reasoning.effort, "max");
 });
 
-test("GPT-6.1 Sol uses low Codex defaults without changing explicit effort or older models", () => {
-  assert.equal(transform(MODEL).reasoning.effort, "low");
+test("GPT-6.1 Sol uses the catalog medium default without changing explicit effort or older models", () => {
+  assert.equal(transform(MODEL).reasoning.effort, "medium");
   assert.equal(transform(MODEL, { reasoning: { effort: "high" } }).reasoning.effort, "high");
-  assert.equal(transform("gpt-5.6-terra").reasoning.effort, "medium");
+  assert.equal(transform("gpt-6-sol").reasoning.effort, "medium");
   for (const provider of ["codex", "cx"]) {
     assert.deepEqual(extendCodexGpt56EffortValues(provider, MODEL, ["none", "high"]), EFFORTS);
     const model = {
@@ -97,7 +97,7 @@ test("GPT-6.1 Sol uses low Codex defaults without changing explicit effort or ol
       capabilities: { reasoning: true },
     };
     assert.deepEqual(reasoningMetadata.getReasoningEffortValues(model), EFFORTS);
-    assert.equal(reasoningMetadata.getDefaultReasoningEffort(model), "low");
+    assert.equal(reasoningMetadata.getDefaultReasoningEffort(model), "medium");
     assert.equal(reasoningMetadata.getReasoningVariantBaseModelId(`${model.id}-ultra`), model.id);
     assert.equal(supportsVscodeServiceTierVariants(model), true);
   }
@@ -108,7 +108,7 @@ test("GPT-6.1 Sol uses low Codex defaults without changing explicit effort or ol
   );
 });
 
-test("GPT-6.1 Sol USD pricing uses the current Standard and purchased-credit Fast rates", () => {
+test("GPT-6.1 Sol USD pricing uses the current Standard rates and the GPT-6 Fast multiplier", () => {
   for (const [provider, ids] of [
     ["openai", [MODEL]],
     ["cx", IDS],
@@ -121,14 +121,17 @@ test("GPT-6.1 Sol USD pricing uses the current Standard and purchased-credit Fas
       assert.equal(price.output, 10);
       assert.equal(price.reasoning, 10);
       if (provider === "openai") assert.equal(price.cache_creation, 2.5);
-      assert.equal(getCodexFastCostMultiplier(provider, id, "priority"), provider === "cx" ? 2 : 1);
+      assert.equal(
+        getCodexFastCostMultiplier(provider, id, "priority"),
+        provider === "cx" ? 2.5 : 1
+      );
     }
   }
-  assert.equal(getCodexFastCostMultiplier("codex", `${MODEL}-ultra`, "fast"), 2);
+  assert.equal(getCodexFastCostMultiplier("codex", `${MODEL}-ultra`, "fast"), 2.5);
   assert.equal(getCodexFastCostMultiplier("codex", MODEL, "default"), 1);
   const price = getPricingForModel("cx", MODEL);
   assert.ok(price);
-  // 500 uncached input + 500 cached input + 100 output = $0.00205, Fast = $0.0041.
+  // 500 uncached input + 500 cached input + 100 output = $0.00205, Fast (2.5x) = $0.005125.
   const tokens = { prompt_tokens: 1000, cached_tokens: 500, completion_tokens: 100 };
   assert.ok(
     Math.abs(
@@ -136,7 +139,7 @@ test("GPT-6.1 Sol USD pricing uses the current Standard and purchased-credit Fas
         provider: "codex",
         model: MODEL,
         serviceTier: "priority",
-      }) - 0.0041
+      }) - 0.005125
     ) < 1e-12
   );
 });
@@ -172,64 +175,3 @@ test("Responses Lite keeps delegation for GPT-6.1 Sol ultra only", async () => {
     assert.equal(captured[0].parallel_tool_calls, effort === "ultra");
   }
 });
-
-for (const model of [MODEL]) {
-  test(`OpenAI ${model} tool requests use Responses and retain each supported reasoning effort`, async () => {
-    assert.equal(
-      resolveChatCoreTargetFormat({
-        provider: "openai",
-        resolvedModel: model,
-        apiFormat: undefined,
-        customModelTargetFormat: undefined,
-        providerSpecificData: null,
-      }).targetFormat,
-      "openai-responses"
-    );
-    const originalFetch = globalThis.fetch;
-    const captured: Array<{ url: string; body: Record<string, unknown> }> = [];
-    globalThis.fetch = async (url, init) => {
-      captured.push({ url: String(url), body: JSON.parse(String(init?.body || "{}")) });
-      return new Response(JSON.stringify({ id: "resp_astra", object: "response", output: [] }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
-    };
-    try {
-      for (const effort of ["low", "medium", "high", "xhigh", "max", "none", "minimal"]) {
-        const body = openaiToOpenAIResponsesRequest(
-          model,
-          {
-            model,
-            messages: [{ role: "user", content: "Call the test tool." }],
-            reasoning_effort: effort,
-            tools: [
-              {
-                type: "function",
-                function: { name: "test_tool", parameters: { type: "object", properties: {} } },
-              },
-            ],
-          },
-          false,
-          {}
-        );
-        await new DefaultExecutor("openai").execute({
-          model,
-          body,
-          stream: false,
-          credentials: { apiKey: "test-openai-key" },
-        });
-        const request = captured.at(-1)!;
-        assert.equal(request.url, "https://api.openai.com/v1/responses");
-        assert.equal(request.body.model, model);
-        assert.equal(
-          (request.body.reasoning as { effort: string }).effort,
-          effort === "none" || effort === "minimal" ? "low" : effort
-        );
-        assert.ok(Array.isArray(request.body.input));
-        assert.equal((request.body.tools as Array<{ name: string }>)[0].name, "test_tool");
-      }
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-}

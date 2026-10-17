@@ -130,7 +130,7 @@ test("#12817 PUT rateLimitedUntil:null also drops nested Codex child cooldowns",
   assert.equal(codexAccount.isCodexChildUnavailable(after as never, "gpt-5.5"), false);
 });
 
-test('#12817 PUT rateLimitedUntil:"" also drops nested Codex child cooldowns', async () => {
+test("#12817 PUT rateLimitedUntil:\"\" also drops nested Codex child cooldowns", async () => {
   const connection = await seedCodexConnection();
   await persistBothChildCooldowns(connection.id);
   await providersDb.updateProviderConnection(connection.id, {

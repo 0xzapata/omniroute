@@ -6,6 +6,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { Card, Button, CardSkeleton } from "@/shared/components";
+import ProviderTosNotice from "@/shared/components/ProviderTosNotice";
 import {
   NOAUTH_PROVIDERS,
   getProviderAlias,
@@ -39,6 +40,7 @@ import {
 import { findDefaultReferral } from "@/lib/radar/referrals";
 import { type ConnectionRowConnection } from "./components/ConnectionRow";
 import { useProviderConnections } from "./hooks/useProviderConnections";
+import { useProviderQuota } from "./hooks/useProviderQuota";
 import { useProviderSettings } from "./hooks/useProviderSettings";
 import { useProviderModels } from "./hooks/useProviderModels";
 import { useCommandCodeAuth } from "./hooks/useCommandCodeAuth";
@@ -144,7 +146,7 @@ export default function ProviderDetailPageClient() {
     setBatchTestResults,
     setProviderNode,
     fetchConnections,
-    fetchProxyConfig,
+    refreshProxyState,
     deleteConfirm,
     handleUpdateConnectionStatus,
     handleToggleRateLimit,
@@ -193,6 +195,7 @@ export default function ProviderDetailPageClient() {
   const {
     modelMeta,
     syncedAvailableModels,
+    syncedCatalogAuthoritative,
     modelAliases,
     fetchProviderModelMeta,
     fetchAliases,
@@ -205,6 +208,19 @@ export default function ProviderDetailPageClient() {
   const t = useTranslations("providers");
   const emailsVisible = useEmailPrivacyStore((s) => s.emailsVisible);
   const notify = useNotificationStore();
+  // Per-account usage/limits strip — cached snapshot from the server's
+  // providerLimitsCache, with per-connection on-demand live refresh.
+  const {
+    quotaByConnectionId,
+    refreshingIds: quotaRefreshingIds,
+    refreshConnection,
+  } = useProviderQuota();
+  const handleRefreshQuota = useCallback(
+    (connectionId: string) => {
+      void refreshConnection(connectionId);
+    },
+    [refreshConnection]
+  );
 
   // Phase 1i: external link flow — placed after notify/fetchConnections are defined
   const {
@@ -287,14 +303,14 @@ export default function ProviderDetailPageClient() {
     NOAUTH_PROVIDERS[providerId]?.noAuth === true ||
     getProviderById(providerId)?.managedAccount === true;
   const registryModels = getModelsByProviderId(providerId);
-  // Prefer synced API-discovered models when available, then merge built-ins
-  // and user-managed custom models without duplicating IDs. Cursor exclusive
-  // listing drops the static registry entirely when synced is non-empty.
+  // Use the server's active-catalog authority decision for display and Test All.
+  // Registry entries supply metadata/fallback; operator custom models remain.
   const models = useMemo(() => {
     return mergeProviderModelListing({
       providerId,
       registryModels,
       syncedModels: syncedAvailableModels,
+      syncedCatalogAuthoritative,
       customModels: (modelMeta.customModels || []).map((cm) => ({
         ...cm,
         id: cm.id,
@@ -308,6 +324,7 @@ export default function ProviderDetailPageClient() {
     registryModels,
     syncedAvailableModels,
     modelMeta.customModels,
+    syncedCatalogAuthoritative,
     usesCuratedModelsOnly,
   ]);
   const isUpstreamProxyProvider = providerInfo?.category === "upstream-proxy";
@@ -560,6 +577,8 @@ export default function ProviderDetailPageClient() {
         isReferralLink={isReferralLink}
       />
 
+      <ProviderTosNotice providerId={providerId} />
+
       {providerId === "zed" && (
         <ZedImportCard fetchConnections={fetchConnections} notify={notify} />
       )}
@@ -733,6 +752,9 @@ export default function ProviderDetailPageClient() {
                 handleToggleSelectAll={handleToggleSelectAll}
                 handleDistributeProxies={handleDistributeProxies}
                 cpaProviderEnabled={cpaProviderEnabled}
+                quotaByConnectionId={quotaByConnectionId}
+                quotaRefreshingIds={quotaRefreshingIds}
+                handleRefreshQuota={handleRefreshQuota}
                 onOpenEditModal={(conn) => {
                   setSelectedConnection(conn);
                   setShowEditModal(true);
@@ -772,6 +794,7 @@ export default function ProviderDetailPageClient() {
             modelMeta={modelMeta}
             modelAliases={modelAliases}
             syncedAvailableModels={syncedAvailableModels}
+            syncedCatalogAuthoritative={syncedCatalogAuthoritative}
             compatibleFallbackModels={compatibleFallbackModels}
             copied={copied}
             onCopy={copy}
@@ -846,7 +869,7 @@ export default function ProviderDetailPageClient() {
         isCommandCode={isCommandCode}
         isUpstreamProxyProvider={isUpstreamProxyProvider}
         subscriptionRisk={subscriptionRisk}
-        existingConnectionCount={connections.length}
+        existingConnectionNames={connections.map((c) => c.name ?? "").filter(Boolean)}
         showRiskNoticeModal={showRiskNoticeModal}
         handleConfirmRiskNotice={handleConfirmRiskNotice}
         handleCancelRiskNotice={handleCancelRiskNotice}
@@ -910,7 +933,7 @@ export default function ProviderDetailPageClient() {
         emailsVisible={emailsVisible}
         proxyTarget={proxyTarget}
         setProxyTarget={setProxyTarget}
-        fetchProxyConfig={fetchProxyConfig}
+        refreshProxyState={refreshProxyState}
         importProgress={importProgress}
         showImportModal={showImportModal}
         setShowImportModal={setShowImportModal}
