@@ -74,6 +74,7 @@ test("detectTestKind defaults to a plain chat test for ordinary models", () => {
     isRerank: false,
     isEmbedding: false,
     isAudioTranscription: false,
+    isAudioSpeech: false,
     isResponses: false,
     isNonChatGeneration: false,
   });
@@ -97,6 +98,7 @@ test("detectTestKind detects rerank by id and by metadata, and rerank wins over 
     isRerank: true,
     isEmbedding: false,
     isAudioTranscription: false,
+    isAudioSpeech: false,
     isResponses: false,
     isNonChatGeneration: false,
   });
@@ -120,6 +122,7 @@ test("detectTestKind detects audio transcription from metadata, and it wins over
     isRerank: false,
     isEmbedding: false,
     isAudioTranscription: true,
+    isAudioSpeech: false,
     isResponses: false,
     isNonChatGeneration: false,
   });
@@ -158,6 +161,7 @@ test("detectTestKind falls back to the provider node's configured apiType", () =
     isRerank: false,
     isEmbedding: false,
     isAudioTranscription: false,
+    isAudioSpeech: false,
     isResponses: false,
     isNonChatGeneration: false,
   });
@@ -346,6 +350,11 @@ test("runSingleModelTest skips web-session providers before sending a chat probe
   assert.equal(result.status, "error");
   assert.equal(result.httpStatus, 422);
   assert.match(result.error ?? "", /Skipped:.*web-session/i);
+});
+
+test("resolveModelTestTimeoutMs gives ChatGPT Web checks up to 90 seconds", () => {
+  assert.equal(resolveModelTestTimeoutMs("chatgpt-web", "gpt-5.6-luna-free", 30_000), 90_000);
+  assert.equal(resolveModelTestTimeoutMs("CHATGPT-WEB", "chatgpt-web/gpt-5-5", 120_000), 120_000);
 });
 
 test("ChatGPT Web Clean Room is eligible for an explicit model test", async () => {

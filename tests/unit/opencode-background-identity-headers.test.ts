@@ -9,7 +9,7 @@
  *    synthesizes the OpenCode CLI identity (UA + x-opencode-client/project/
  *    request/session) for non-chat fetches, with a STABLE per-caller session
  *    fingerprint seeded by the calling connection/workspace.
- * 2. `PROVIDER_MODELS_CONFIG` entries for opencode / opencode-zen /
+ * 2. `PROVIDER_MODELS_CONFIG` entries for opencode-zen /
  *    opencode-go (src/app/api/providers/[id]/models/discovery/
  *    providerModelsConfig.ts) route discovery through that helper, and the
  *    seed prefers the connection's `opencodeGoWorkspaceId` so connections
@@ -70,15 +70,19 @@ test("explicit userAgent override wins over the CLI default", () => {
   assert.equal(headers["User-Agent"], "opencode-cli/9.9.9");
 });
 
-test("discovery entries for opencode / opencode-zen / opencode-go attach the session header", () => {
-  for (const provider of ["opencode", "opencode-zen", "opencode-go"] as const) {
+test("discovery entries for opencode-zen / opencode-go attach the session header", () => {
+  for (const provider of ["opencode-zen", "opencode-go"] as const) {
     const entry = PROVIDER_MODELS_CONFIG[provider];
     assert.ok(entry, `PROVIDER_MODELS_CONFIG missing ${provider}`);
     assert.equal(typeof entry.buildHeaders, "function", `${provider} must use buildHeaders`);
     const headers = entry.buildHeaders!("test-token", {
       providerSpecificData: { opencodeGoWorkspaceId: "wrk_01ABC" },
     });
-    assert.equal(headers.Authorization, "Bearer test-token");
+    // Contract change: the zen/go catalog endpoint rejects a bearer with
+    // 401 api_key_expired and authenticates the same key via x-api-key only
+    // (live 2026-10-23, three accounts). The chat path keeps its bearer.
+    assert.equal(headers["x-api-key"], "test-token");
+    assert.equal(headers.Authorization, undefined);
     assert.equal(headers["User-Agent"], "opencode");
     assertDescendingSession(headers["x-opencode-session"]);
     // Same workspace → same identity as the raw helper (seed comes from psd).

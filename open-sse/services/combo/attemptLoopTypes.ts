@@ -39,6 +39,10 @@ export type AttemptLoopState = {
   exhaustedProviders: Set<string>;
   exhaustedConnections: Set<string>;
   transientRateLimitedProviders: Set<string>;
+  /** Durable exhaustion carried across set retries (quota, credits, auth). */
+  durableExhaustedProviders?: Set<string>;
+  /** Durable exhaustion carried across set retries, keyed `provider:connectionId`. */
+  durableExhaustedConnections?: Set<string>;
   abortControllers: Map<number, AbortController>;
   dispatchedTargets: Set<string>;
   targetFailureTrust: Map<string, { observedFailure: boolean; allObservedFailuresQuota: boolean }>;
@@ -54,6 +58,12 @@ export type AttemptLoopState = {
   /** Normalized provider/model keys already refused request-scoped this dispatch. */
   requestScopedRejectedModelKeys?: Set<string>;
   observeFailure(quotaExhausted: boolean, targetExecutionKey?: string): void;
+  /**
+   * Last result of a target the combo moved on from, returned when no later target
+   * succeeds: a stream cut in transit (#18460 follow-up, `truncatedStreamFailover.ts`) or
+   * an agentic stall (#13954, `agenticStallFailover.ts`).
+   */
+  heldTruncatedResponse?: Response | null;
 };
 
 export type AttemptLoopDeps = {
@@ -84,6 +94,7 @@ export type AttemptLoopDeps = {
   traceInvocationId: string;
   clientRequestedStream: boolean;
   handleSingleModelWithTimeout: HandleSingleModel;
+  requestHeaders?: Headers | Record<string, unknown> | null;
   isModelAvailable?: IsModelAvailable;
   perTargetAdmission?: PerTargetAdmissionHook | null;
   /** Optional only to permit deterministic management-health gate tests. */
