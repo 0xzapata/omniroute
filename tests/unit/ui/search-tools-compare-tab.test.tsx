@@ -167,9 +167,10 @@ describe("CompareTab", () => {
       buttons.forEach((b) => b.click());
     });
 
-    // All 4 should be selected
+    // All 4 should be selected (the picker is a kit CheckboxGroup now: the checked state is
+    // the native checkbox's, where it used to be the toggle button's aria-pressed).
     buttons.forEach((b) => {
-      expect(b.getAttribute("aria-pressed")).toBe("true");
+      expect((b as unknown as HTMLInputElement).checked).toBe(true);
     });
   });
 

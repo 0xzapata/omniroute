@@ -16,12 +16,15 @@ import {
   isNimFunctionDegraded,
 } from "../config/errorConfig.ts";
 import {
+  getCodebuddyRequestIllegalMatch,
   getOpencodeModelUnavailableMatch,
   getProviderErrorRuleMatch,
   resolveRuleMatchBody,
   honorsRuleLockScope,
+  setProviderErrorRuleFlagReader,
 } from "../config/providerErrorRules.ts";
 import * as rot from "./rotationConfig.ts";
+import { isContentPolicyRefusal } from "../utils/contentPolicyError.ts";
 import { isRegistryPassthroughProvider } from "./passthroughRegistry.ts";
 import { getProviderCategory, isLocalProvider } from "../config/providerRegistry.ts";
 import {
@@ -107,6 +110,8 @@ import { isTransientComboCooldownReason } from "./combo/comboCooldownRetry.ts";
 import { evictLockoutOverflow } from "./accountFallback/lockoutEviction.ts";
 export { MODEL_LOCKOUT_EVICTION_CAP } from "./accountFallback/lockoutEviction.ts";
 export { hasPerModelFailureScope } from "./accountFallback/perModelFailureScope.ts";
+import { buildConcurrencyLimitFallback } from "./accountFallback/concurrencyLimit429.ts";
+export { CONCURRENCY_LIMIT_COOLDOWN_MS } from "./accountFallback/concurrencyLimit429.ts";
 import { capScaledCooldownMs } from "./accountFallback/cooldownCap.ts";
 import { resolveApiKeyForbiddenFallback } from "./accountFallback/nonRetryableUpstream.ts";
 import * as exactModelLock from "./accountFallback/exactModelLock.ts";
@@ -114,8 +119,16 @@ import { isCreditsExhaustedWithSharedWallet } from "./accountFallback/sharedWall
 import { CREDITS_EXHAUSTED_SIGNALS } from "./accountFallback/creditExhaustionSignals.ts";
 export { CREDITS_EXHAUSTED_SIGNALS } from "./accountFallback/creditExhaustionSignals.ts";
 import { isMistralAmbiguous401 } from "./accountFallback/mistralAmbiguousAuth.ts";
-import { isMistralAmbiguous401SoftLockoutEnabled } from "@/shared/utils/featureFlags";
+import {
+  isFeatureFlagEnabled,
+  isMistralAmbiguous401SoftLockoutEnabled,
+} from "@/shared/utils/featureFlags";
 import { boundedMap } from "@/lib/quota/boundedMap";
+// #16797: providerErrorRules.ts stays free of src/ imports; its opt-in flags
+// (OpenCode Zen egress-IP lock, full-text rule bodies) read the flag store through
+// this injected reader. Not registered = flags off (release default).
+setProviderErrorRuleFlagReader(isFeatureFlagEnabled);
+
 export type ProviderProfile = {
   baseCooldownMs: number;
   useUpstreamRetryHints: boolean;
@@ -1277,7 +1290,8 @@ export function recordProviderFailure(
 export function recordProviderSuccess(
   provider: string | null | undefined,
   connectionId?: string | null,
-  opts?: { providerProbeSettled?: boolean }
+  opts?: { providerProbeSettled?: boolean },
+  log?: { info?: (...args: unknown[]) => void }
 ): void {
   if (!provider || provider === "unknown") return;
   provider = resolveProviderId(provider);
@@ -1307,6 +1321,15 @@ export function recordProviderSuccess(
     }
   }
   breaker._onSuccess();
+  // Only a connection-scoped breaker can close here: OPEN (either scope) and a provider-level
+  // HALF_OPEN return early above. A provider-level breaker closes inside its own execute()
+  // probe or the chat handler's success settle, and its close is still recorded in the
+  // breaker's transitionHistory, which the resilience views read.
+  if (breakerState === "HALF_OPEN" && breaker.getStatus().state === "CLOSED") {
+    log?.info?.(
+      `[ProviderSuccess] ${provider}/${connectionId}: connection circuit breaker closed (HALF_OPEN -> CLOSED)`
+    );
+  }
 }
 
 /**
@@ -1713,6 +1736,16 @@ export function checkFallbackError(
       skipProviderBreaker: true,
     };
   }
+  // A policy refusal belongs to this input, even when relayed with a 403/5xx.
+  // Preserve the refusal; rotating accounts or cooling them down cannot repair it.
+  if (isContentPolicyRefusal(structuredError)) {
+    return {
+      shouldFallback: false,
+      cooldownMs: 0,
+      reason: "content_policy_refusal",
+      skipProviderBreaker: true,
+    };
+  }
 
   const previousResponseBindingMiss =
     structuredError?.code === "invalid_previous_response_binding" ||
@@ -1851,7 +1884,7 @@ export function checkFallbackError(
       };
     }
 
-    const ro = rot.overrideFor(reason, rotation?.account);
+    const ro = rot.overrideFor(reason, rotation?.account, provider);
     if (ro) return ro;
     const scaled = getScaledBaseCooldown(reason, backoffLevel);
     return {
@@ -2139,6 +2172,10 @@ export function checkFallbackError(
     }
   }
 
+  // Concurrency-limit 429: healthy-but-busy account — fail over without backoff.
+  const concurrencyFallback = buildConcurrencyLimitFallback(status, errorStr, getUpstreamRetryHint);
+  if (concurrencyFallback) return concurrencyFallback;
+
   const configuredRule =
     isRateLimitStatus && !preserveQuota429
       ? matchErrorRuleByStatus(status)
@@ -2255,6 +2292,9 @@ export function checkFallbackError(
   if (status === HTTP_STATUS.BAD_REQUEST || status === HTTP_STATUS.UNPROCESSABLE_ENTITY) {
     const modelUnavailable = getOpencodeModelUnavailableMatch(provider, status, headers, errorStr);
     if (modelUnavailable) return ruleScopedResult(modelUnavailable);
+    // CodeBuddy Intl wraps its connection-wide WAF block in a 400 "request illegal".
+    const codebuddyBlocked = getCodebuddyRequestIllegalMatch(provider, status, headers, errorStr);
+    if (codebuddyBlocked) return ruleScopedResult(codebuddyBlocked);
     // Check structured error codes first (more reliable, no false positives)
     // OpenAI:  error.code === "model_not_found"
     // Anthropic: error.type === "not_found_error" / "permission_error"

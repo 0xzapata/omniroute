@@ -10,10 +10,15 @@
  * Cache: 60s in-memory. Registration: registerMoonshotQuotaFetcher() at startup.
  */
 
-import { toNumber } from "@/shared/utils/numeric";
-import { registerQuotaFetcher, type QuotaInfo } from "./quotaPreflight.ts";
+import { toNumber } from "../utils/numeric.ts";
+import {
+  registerQuotaCacheInvalidator,
+  registerQuotaFetcher,
+  type QuotaInfo,
+} from "./quotaPreflight.ts";
 import { registerMonitorFetcher } from "./quotaMonitor.ts";
 import { throttleQuotaFetch } from "./quotaFetchThrottle.ts";
+import { fetchWithConnectionProxy } from "./connectionProxyFetch.ts";
 import { isUrlHostOrSubdomain } from "../utils/urlHost.ts";
 import {
   isKimiCodingBaseUrl,
@@ -171,7 +176,7 @@ export async function fetchMoonshotQuota(
 
   try {
     await throttleQuotaFetch();
-    const response = await fetch(url, {
+    const response = await fetchWithConnectionProxy(connectionId, url, {
       method: "GET",
       headers: {
         Authorization: authHeader,
@@ -180,6 +185,7 @@ export async function fetchMoonshotQuota(
       },
       signal: AbortSignal.timeout(8_000),
     });
+    if (!response) return null;
 
     if (response.status === 401 || response.status === 403) {
       quotaCache.delete(connectionId);
@@ -214,6 +220,18 @@ export async function getMoonshotOpenPlatformUsage(connection: MoonshotUsageConn
   message?: string;
   limitReached?: boolean;
 }> {
+  if (isKimiCodingConnection(connection)) {
+    return (await getKimiUsage(
+      undefined,
+      connection.apiKey,
+      toRecord(connection.providerSpecificData)
+    )) as {
+      plan?: string;
+      quotas?: Record<string, UsageQuota>;
+      message?: string;
+      limitReached?: boolean;
+    };
+  }
   const origin = resolveMoonshotOrigin(connection);
   if (!origin) {
     return { message: "Not a Moonshot Open Platform connection." };
@@ -261,6 +279,8 @@ function buildMoonshotBalanceQuotas(
 export function registerMoonshotQuotaFetcher(): void {
   registerQuotaFetcher("moonshot", fetchMoonshotQuota);
   registerQuotaFetcher("kimi", fetchMoonshotQuota);
+  registerQuotaCacheInvalidator("moonshot", invalidateMoonshotQuotaCache);
+  registerQuotaCacheInvalidator("kimi", invalidateMoonshotQuotaCache);
   registerMonitorFetcher("moonshot", fetchMoonshotQuota);
   registerMonitorFetcher("kimi", fetchMoonshotQuota);
 }
@@ -273,10 +293,12 @@ export function registerMoonshotFetchersForNodes(
     if (!origin && !isKimiCodingBaseUrl(node.baseUrl)) continue;
     if (typeof node.id === "string" && node.id) {
       registerQuotaFetcher(node.id, fetchMoonshotQuota);
+      registerQuotaCacheInvalidator(node.id, invalidateMoonshotQuotaCache);
       registerMonitorFetcher(node.id, fetchMoonshotQuota);
     }
     if (typeof node.prefix === "string" && node.prefix) {
       registerQuotaFetcher(node.prefix, fetchMoonshotQuota);
+      registerQuotaCacheInvalidator(node.prefix, invalidateMoonshotQuotaCache);
       registerMonitorFetcher(node.prefix, fetchMoonshotQuota);
     }
   }

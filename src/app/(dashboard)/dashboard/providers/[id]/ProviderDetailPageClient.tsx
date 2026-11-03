@@ -40,6 +40,7 @@ import {
 import { findDefaultReferral } from "@/lib/radar/referrals";
 import { type ConnectionRowConnection } from "./components/ConnectionRow";
 import { useProviderConnections } from "./hooks/useProviderConnections";
+import { useDevinAgenticAuthStatus } from "../hooks/useDevinAgenticAuthStatus";
 import { useProviderQuota } from "./hooks/useProviderQuota";
 import { useProviderSettings } from "./hooks/useProviderSettings";
 import { useProviderModels } from "./hooks/useProviderModels";
@@ -51,6 +52,7 @@ import { useModelImportHandlers } from "./hooks/useModelImportHandlers";
 import { useApiKeySave } from "./hooks/useApiKeySave";
 import { useModelVisibilityHandlers } from "./hooks/useModelVisibilityHandlers";
 import { useModelCompatState } from "./hooks/useModelCompatState";
+import { useModelComboUsage } from "./hooks/useModelComboUsage";
 import { useConnectionGate } from "./hooks/useConnectionGate";
 import { useProviderNodeActions } from "./hooks/useProviderNodeActions";
 import ProviderExtraPanels from "./components/ProviderExtraPanels";
@@ -59,6 +61,7 @@ import CustomModelsSection from "./components/CustomModelsSection";
 import ConnectionsListPanel from "./components/ConnectionsListPanel";
 import CoolingConnectionsPanel from "./components/CoolingConnectionsPanel";
 import ConnectionsHeaderToolbar from "./components/ConnectionsHeaderToolbar";
+import { ConnectionPinTip } from "./components/ConnectionIdChip";
 import VolcengineConnectModal from "./components/VolcengineConnectModal";
 import ProviderAccountRoutingCard from "../../settings/components/ProviderAccountRoutingCard";
 import ZedImportCard from "./components/ZedImportCard";
@@ -71,6 +74,7 @@ import UpstreamProxyCard from "./components/UpstreamProxyCard";
 import SearchProviderCard from "./components/SearchProviderCard";
 import NoAuthProviderControls from "./components/NoAuthProviderControls";
 import AnonymousFallbackToggle from "./components/AnonymousFallbackToggle";
+import ProviderRetryDelaySelect from "./components/ProviderRetryDelaySelect";
 // providerText used by UpstreamProxyCard (Phase 1t.7)
 
 export default function ProviderDetailPageClient() {
@@ -299,6 +303,9 @@ export default function ProviderDetailPageClient() {
   const supportsDualAuth = supportsDualAuthProvider(providerId);
   const isOAuth = providerSupportsOAuth && !providerSupportsPat;
   const providerAlias = getProviderAlias(providerId);
+  const devinAgenticAuthenticated = useDevinAgenticAuthStatus(providerId === "devin-cli-agentic");
+  const displayConnectionCount =
+    connections.length + (devinAgenticAuthenticated && connections.length === 0 ? 1 : 0);
   const isFreeNoAuth =
     NOAUTH_PROVIDERS[providerId]?.noAuth === true ||
     getProviderById(providerId)?.managedAccount === true;
@@ -368,7 +375,10 @@ export default function ProviderDetailPageClient() {
     connections,
     setConnections,
     notify,
-    t
+    t,
+    async () => {
+      await Promise.all([fetchConnections(), fetchProviderModelMeta()]);
+    }
   );
 
   // ── model-related effects (loading gate) ────────────────────────────────
@@ -496,6 +506,9 @@ export default function ProviderDetailPageClient() {
 
   // Phase 1e: compat-state derivations
   const compat = useModelCompatState(modelMeta.customModels, modelMeta.modelCompatOverrides);
+  // Combo membership for every model on this provider — drives the small
+  // "used in combo X" badge behind each model row (#16216).
+  const comboUsage = useModelComboUsage(providerId);
   const { customMap } = compat;
   const effectiveModelNormalize = compat.effectiveModelNormalize;
   const effectiveModelPreserveDeveloper = compat.effectiveModelPreserveDeveloper;
@@ -569,7 +582,7 @@ export default function ProviderDetailPageClient() {
       <ProviderPageHeader
         providerId={providerId}
         providerInfo={{ ...providerInfo, website: providerHeaderWebsite }}
-        connectionsCount={connections.length}
+        connectionsCount={displayConnectionCount}
         isOpenAICompatible={isOpenAICompatible}
         isAnthropicProtocolCompatible={isAnthropicProtocolCompatible}
         onOpenTutorial={() => setShowTutorialModal(true)}
@@ -616,6 +629,7 @@ export default function ProviderDetailPageClient() {
           providerName={providerInfo?.name || providerId}
         />
       )}
+      {!isUpstreamProxyProvider && <ProviderRetryDelaySelect providerId={providerId} />}
       {!isUpstreamProxyProvider && (!isFreeNoAuth || providerSupportsPat) && (
         <Card>
           <ProviderAccountRoutingCard
@@ -653,6 +667,10 @@ export default function ProviderDetailPageClient() {
             loadCodexSettings={loadCodexSettings}
             onSetProxyTarget={setProxyTarget}
             handleDistributeProxies={handleDistributeProxies}
+            onAccountProxiesReset={async () => {
+              await fetchConnections();
+              await refreshProxyState();
+            }}
             handleBatchTestAll={handleBatchTestAll}
             gateConnectionFlow={gateConnectionFlow}
             openApiKeyAddFlow={openApiKeyAddFlow}
@@ -693,6 +711,7 @@ export default function ProviderDetailPageClient() {
             />
           ) : (
             <>
+              <ConnectionPinTip />
               <CoolingConnectionsPanel
                 connections={connections}
                 onClearCooldown={handleClearCooldown}
@@ -793,6 +812,7 @@ export default function ProviderDetailPageClient() {
             models={models}
             modelMeta={modelMeta}
             modelAliases={modelAliases}
+            comboUsage={comboUsage}
             syncedAvailableModels={syncedAvailableModels}
             syncedCatalogAuthoritative={syncedCatalogAuthoritative}
             compatibleFallbackModels={compatibleFallbackModels}

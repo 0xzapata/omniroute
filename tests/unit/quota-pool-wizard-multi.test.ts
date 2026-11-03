@@ -114,7 +114,8 @@ test("PoolWizard.tsx: connectionIds state is defined (multi-select)", () => {
 
 test("PoolWizard.tsx: renders checkboxes for connection selection in step 1", () => {
   assert.ok(
-    wizardSrc.includes('type="checkbox"'),
+    // KEA-7886: connections are kit Checkbox adapters (a native input[type=checkbox]).
+    wizardSrc.includes("<Checkbox"),
     "Expected checkbox inputs in step 1 for multi-connection selection"
   );
 });

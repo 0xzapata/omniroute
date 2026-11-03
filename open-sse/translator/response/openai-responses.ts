@@ -24,6 +24,7 @@ import {
   normalizeOutputIndex,
   normalizeUpstreamFailure,
   getVisibleResponsesReasoningSummaryText,
+  resolveResponsesDoneEventType,
 } from "./openai-responses/pureHelpers.ts";
 import { createEventEmitter } from "./openai-responses/eventEmitter.ts";
 import { buildResponsesToolCallItem } from "./responsesToolItem.ts";
@@ -198,6 +199,9 @@ export function openaiToOpenAIResponsesResponse(chunk, state) {
       typeof rawReasoning === "number" && Number.isFinite(rawReasoning) ? rawReasoning : 0;
 
     state.usage = {
+      // Exact provider-reported cost and its credit provenance; billing reads them.
+      ...(u.provider_credits !== undefined && { provider_credits: u.provider_credits }),
+      ...(u.cost_in_usd_ticks !== undefined && { cost_in_usd_ticks: u.cost_in_usd_ticks }),
       input_tokens,
       input_tokens_details: {
         cached_tokens: 0,
@@ -344,9 +348,9 @@ export function openaiToOpenAIResponsesResponse(chunk, state) {
 
         if (state.inThinking && content) {
           emitReasoningDelta(state, emit, content);
-          // Pre-existing behaviour (unrelated to #8081): a still-open
-          // textual <think> block ends this chunk's handling early.
-          return events;
+          // Keep processing this chunk: reasoning text can arrive in the same
+          // delta as a tool call and/or finish_reason.
+          content = "";
         }
       }
 
@@ -902,8 +906,16 @@ function flushEvents(state) {
 // the terminal `response.output_item.done` snapshot for that item is NOT re-emitted
 // (which would duplicate the reasoning channel). Keyed by item_id when present, with a
 // global fallback for streams whose deltas carry no item_id.
-function markResponsesReasoningDeltaEmitted(state, itemId) {
+function markResponsesReasoningDeltaEmitted(state, itemId, outputIndex?) {
   state.reasoningDeltaEmitted = true;
+  // GitHub Copilot rotates the encrypted reasoning item id between events, so the
+  // id alone cannot pair a delta with its output_item.done. Record output_index too.
+  if (typeof outputIndex === "number") {
+    if (!(state.reasoningOutputIndexesWithDelta instanceof Set)) {
+      state.reasoningOutputIndexesWithDelta = new Set();
+    }
+    state.reasoningOutputIndexesWithDelta.add(outputIndex);
+  }
   const id = itemId != null ? String(itemId) : "";
   if (!id) return;
   if (!(state.reasoningItemsWithDelta instanceof Set)) {
@@ -1043,8 +1055,11 @@ function openaiResponsesToOpenAIResponseStream(chunk, state) {
   }
 
   // Handle different event types from Responses API
-  const eventType = chunk.type || chunk.event;
+  const rawEventType = chunk.type || chunk.event;
   const data = chunk.data || chunk;
+  // A response.done that trails an already-handled terminal must not re-fire it.
+  if (rawEventType === "response.done" && state.finishReasonSent) return null;
+  const eventType = resolveResponsesDoneEventType(rawEventType, data);
 
   if (!state.model) {
     const upstreamModel =
@@ -1445,6 +1460,12 @@ function openaiResponsesToOpenAIResponseStream(chunk, state) {
           : 0);
 
       state.usage = {
+        ...(responseUsage.provider_credits !== undefined && {
+          provider_credits: responseUsage.provider_credits,
+        }),
+        ...(responseUsage.cost_in_usd_ticks !== undefined && {
+          cost_in_usd_ticks: responseUsage.cost_in_usd_ticks,
+        }),
         prompt_tokens: promptTokens,
         completion_tokens: outputTokens,
         total_tokens: promptTokens + outputTokens,
@@ -1499,7 +1520,7 @@ function openaiResponsesToOpenAIResponseStream(chunk, state) {
   ) {
     const reasoningDelta = data.delta || "";
     if (!reasoningDelta) return null;
-    markResponsesReasoningDeltaEmitted(state, data.item_id);
+    markResponsesReasoningDeltaEmitted(state, data.item_id, data.output_index);
     return {
       id: state.chatId,
       object: "chat.completion.chunk",
@@ -1522,7 +1543,7 @@ function openaiResponsesToOpenAIResponseStream(chunk, state) {
   if (eventType === "response.reasoning_summary_text.delta") {
     const reasoningDelta = data.delta || "";
     if (!reasoningDelta) return null;
-    markResponsesReasoningDeltaEmitted(state, data.item_id);
+    markResponsesReasoningDeltaEmitted(state, data.item_id, data.output_index);
     const deltaText = buildResponsesReasoningSummaryDelta(state, data, reasoningDelta);
     return buildResponsesReasoningDeltaChunk(state, deltaText);
   }
@@ -1541,7 +1562,12 @@ function openaiResponsesToOpenAIResponseStream(chunk, state) {
     const emittedWithoutItemId =
       state.reasoningDeltaEmitted &&
       !(state.reasoningItemsWithDelta instanceof Set && state.reasoningItemsWithDelta.size > 0);
-    if (emittedForItem || emittedWithoutItemId) return null;
+    // Same reasoning item under a rotated id (GitHub Copilot): match by output_index.
+    const emittedForOutputIndex =
+      typeof data.output_index === "number" &&
+      state.reasoningOutputIndexesWithDelta instanceof Set &&
+      state.reasoningOutputIndexesWithDelta.has(data.output_index);
+    if (emittedForItem || emittedWithoutItemId || emittedForOutputIndex) return null;
 
     const replayableReasoning = extractReplayableResponsesReasoningText(item);
     if (replayableReasoning) {

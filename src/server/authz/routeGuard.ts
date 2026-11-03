@@ -58,9 +58,11 @@ export const LOCAL_ONLY_API_PREFIXES: ReadonlyArray<string> = [
   "/api/cli-tools/droid-settings", // spawns via getCliRuntimeStatus() to detect the `droid` CLI install (Hard Rules #15 + #17, GHSA-35fw-cv32-2373)
   "/api/cli-tools/kilo-settings", // spawns via getCliRuntimeStatus() to detect the `kilo` CLI install (Hard Rules #15 + #17, GHSA-35fw-cv32-2373)
   "/api/cli-tools/openclaw-settings", // spawns via getCliRuntimeStatus() to detect the `openclaw` CLI install (Hard Rules #15 + #17, GHSA-35fw-cv32-2373). Does NOT cover the non-spawning sibling /api/cli-tools/openclaw/auto-order (different segment).
+  "/api/providers/devin-cli-agentic/auth-status", // GET spawns `devin auth status` via getDevinAgenticAuthStatus() (src/lib/providers/devinAgenticAuthStatus.ts) — RCE-via-tunnel surface (Hard Rules #15 + #17, #15446). Narrow-scoped like /api/providers/cursor/agent-availability.
   "/api/cli-tools/pi-settings", // spawns via getCliRuntimeStatus() to detect the `pi` CLI install (Hard Rules #15 + #17, GHSA-35fw-cv32-2373)
   "/api/cli-tools/smelt-settings", // spawns via getCliRuntimeStatus() to detect the `smelt` CLI install (Hard Rules #15 + #17, GHSA-35fw-cv32-2373)
   "/api/cli-tools/status", // GET calls getCliRuntimeStatus() per CLI_TOOL_IDS entry (Hard Rules #15 + #17, GHSA-35fw-cv32-2373)
+  "/api/cli-tools/whycodes-settings", // spawns via getCliRuntimeStatus() to detect the `whycodes` CLI install (Hard Rules #15 + #17, #14107)
   "/api/services/", // T-10: embedded service lifecycle (spawn child processes)
   "/api/version-manager/", // downloads, unpacks and runs the CLIProxyAPI binary, the same work as /api/services/cliproxy/ (Hard Rules #15 + #17); read-only GETs exempted below
   "/api/tunnels/cloudflared", // POST installs/starts/stops cloudflared; safe methods are exempted below
@@ -186,6 +188,10 @@ export const ALWAYS_PROTECTED_API_PATHS: ReadonlyArray<string> = [
   // which is false under requireLogin=false. (GHSA-v7g9-7f55-5g46)
   "/api/settings/export-json",
   "/api/settings/import-json",
+  // Selective provider-account transfer: export hands out the selected accounts'
+  // credentials (passphrase-sealed) and import writes connections. Same tier as
+  // the -json siblings above; the prefix covers catalog/export/preview/import.
+  "/api/settings/transfer",
   // Bulk log export: call_logs carries prompts and responses, proxy_logs carries
   // client/public IPs, and the handler only calls requireManagementAuth() with no
   // alwaysRequireAuth. Found sweeping the GHSA-5926-2w35-7h4q class.
@@ -218,6 +224,46 @@ export const ALWAYS_PROTECTED_API_PATHS: ReadonlyArray<string> = [
   // requireLogin=false (GHSA-qxg2-rm3h-4cxp). The dashboard consumers send the
   // session cookie, so ALWAYS_PROTECTED keeps them working through a tunnel.
   "/api/providers/client",
+  // Relay token management. POST mints a reusable inference credential and
+  // returns it in clear once, GET lists every token's id/prefix/limits, and the
+  // [id] child edits, toggles or revokes one. Credential issuance stays
+  // authenticated in open mode (requireLogin=false), like the WebDAV credentials
+  // above: "anonymous" is never the right audience for "mint me a token". The
+  // dashboard sends the session cookie and automation a manage-scoped key, so
+  // both keep working; the plain prefix covers the /{id} child routes.
+  "/api/relay/tokens",
+  // Sync token management. POST mints a token that opens GET /api/sync/bundle,
+  // which returns decrypted provider credentials and plaintext API keys — the
+  // material /api/settings/export-json above hands out — GET lists the tokens
+  // and the [id] child revokes one. Issuance already needed a dashboard session
+  // or the local CLI when login is on; in open mode it fell back to "anyone".
+  // The bundle itself stays a public route: it authenticates with the token.
+  "/api/sync/tokens",
+  // Host CLI config writers. /apply overwrites the operator's CLI config (for Claude the
+  // whole ~/.claude/settings.json) with a caller-supplied base URL and token, repointing
+  // the operator's CLI at that endpoint; guide-settings and hermes-agent-settings write
+  // the same kind of config and backups restores one. The handlers only call
+  // requireCliToolsAuth() and guardCliConfigWrite() (CLI_ALLOW_CONFIG_WRITES defaults to
+  // true), so with login disabled they were anonymous while their sibling
+  // /api/cli-tools/codex-profiles above was not. Read-only CLI tool routes stay as is.
+  "/api/cli-tools/apply",
+  "/api/cli-tools/guide-settings",
+  "/api/cli-tools/hermes-agent-settings",
+  "/api/cli-tools/backups",
+  // Log export destinations: a destination is a caller-chosen BigQuery project with its
+  // own service account, and /[id]/run ships call_logs (prompts, responses, key names)
+  // into it. Same data as /api/logs/export above; the prefix covers destinations, their
+  // run/test children, status and types.
+  "/api/log-export",
+  // SIGTERMs the process, like its twin /api/shutdown above.
+  "/api/restart",
+  // CLIProxyAPI management compatibility (also reached as /v0/management/* via the
+  // next.config.mjs rewrite and the classify.ts alias). api-call sends upstream requests
+  // with a connection's stored OAuth token, auth-files lists the OAuth accounts, and
+  // reset-quota lifts routing cooldowns: none of that is for an anonymous caller, so it
+  // stays authenticated under requireLogin=false. ALWAYS_PROTECTED rather than LOCAL_ONLY
+  // so a remote client holding a manage-scope key (the use case) keeps working.
+  "/api/v0/management",
 ];
 
 /**
@@ -324,6 +370,13 @@ export function isPrivateLanHost(hostHeader: string | null): boolean {
  *   PATH lookup (`which cloudflared`), which runs only for loopback/LAN callers:
  *   a remote caller gets the unprobed status (`probed: false`) with no spawn
  *   (GHSA-35fw-cv32-2373 class, GHSA-jmq6-8j86-8xqj call-site gate).
+ *   /api/services/cliproxy/status — GET returns lifecycle/version metadata only;
+ *   its latest-version lookup is an HTTPS release query, never a child process.
+ *   Lifecycle mutations remain LOCAL_ONLY through the parent /api/services/
+ *   prefix. The other service status routes are deliberately NOT exempt:
+ *   bifrost/dario/mux/openwa call `getLatestVersion()` → `npm view` (execFile) on
+ *   a cache miss, which a remote caller must never trigger (Hard Rules #15/#17),
+ *   and 9router also supports `?reveal=key` (plaintext service credential).
  */
 export const LOCAL_ONLY_API_GET_EXEMPTIONS: ReadonlySet<string> = new Set([
   "/api/system/version",
@@ -338,6 +391,7 @@ export const LOCAL_ONLY_API_GET_EXEMPTIONS: ReadonlySet<string> = new Set([
   // 403s the timeline MCP poll forever (#13941).
   "/api/mcp/audit",
   "/api/mcp/audit/stats",
+  "/api/services/cliproxy/status",
 ]);
 
 /** Safe HTTP methods that can be exempted for read-only paths. */

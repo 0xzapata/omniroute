@@ -1,6 +1,8 @@
 // Allow large audio/video file uploads — 5min for processing large files (up to 2GB)
 export const maxDuration = 300;
+import { getRequestedModelEndpointMismatch } from "@/lib/providerModels/modelEndpointGuard";
 import { handleAudioTranscription } from "@omniroute/open-sse/handlers/audioTranscription.ts";
+import { fetchRemoteMedia } from "@/shared/network/remoteImageFetch";
 import {
   getProviderCredentialsWithQuotaPreflight,
   clearRecoveredProviderState,
@@ -17,8 +19,18 @@ import {
 import { resolveDynamicAudioProviders } from "@/app/api/v1/_shared/audioProviderNodes";
 import { errorResponse } from "@omniroute/open-sse/utils/error.ts";
 import { HTTP_STATUS } from "@omniroute/open-sse/config/constants.ts";
+import { getCombinedModelAliases } from "@/sse/services/model";
+import { resolveModel } from "@omniroute/open-sse/services/wildcardRouter.ts";
+import { resolveModelAliasFromMap } from "@omniroute/open-sse/services/model.ts";
+import { isModelAllowedForKey } from "@/lib/db/apiKeys";
 import { enforceApiKeyPolicy } from "@/shared/utils/apiKeyPolicy";
-import { intersectAllowedConnectionIds } from "@/sse/handlers/chat/connectionConstraints";
+import {
+  createComboTargetKeyGate,
+  isKeyScopeBlockedCredentials,
+  keyScopeBlockedResponse,
+  keylessProviderRejection,
+  resolveKeyConnectionScope,
+} from "@/sse/services/keyConnectionScope";
 import {
   isAllRateLimitedCredentials,
   rateLimitedProviderResponse,
@@ -71,29 +83,6 @@ function withModel(formData: FormData, modelStr: string): FormData {
 }
 
 /**
- * `getProviderCredentials` returns `{ blockedByKeyPolicy: true }` when the
- * provider has connections but the caller key's scope hid every one of them —
- * a truthy object without any secret that must never be dispatched.
- */
-function isKeyScopeBlocked(credentials: unknown): credentials is { blockedCount?: number } {
-  return (
-    !!credentials &&
-    typeof credentials === "object" &&
-    (credentials as { blockedByKeyPolicy?: unknown }).blockedByKeyPolicy === true
-  );
-}
-
-/** Same 403 chat answers for a pool emptied by the key's scope (#13832). */
-function keyScopeBlockedResponse(provider: string, credentials: { blockedCount?: number }) {
-  const count = Number(credentials.blockedCount) || 1;
-  return errorResponse(
-    HTTP_STATUS.FORBIDDEN,
-    `[${provider}] ${count} connection(s) exist but are excluded by this API key's ` +
-      `connection allowlist / quota scope — add them to the key in the dashboard, or use a key without that scope`
-  );
-}
-
-/**
  * Handle CORS preflight
  */
 export async function OPTIONS() {
@@ -123,6 +112,12 @@ async function transcribeWithModel(
     "/audio/transcriptions",
     "audio-transcriptions"
   );
+
+  const endpointMismatch = await getRequestedModelEndpointMismatch(
+    modelStr,
+    "audio-transcriptions"
+  );
+  if (endpointMismatch) return errorResponse(HTTP_STATUS.BAD_REQUEST, endpointMismatch);
 
   const parsed = parseTranscriptionModel(modelStr, dynamicProviders);
   let provider = parsed.provider;
@@ -156,7 +151,7 @@ async function transcribeWithModel(
     // provider has no credentials, retry gateways that list the same nested
     // model id (e.g. OpenRouter's `deepgram/nova-3`). A pool emptied by the
     // key's scope may still be served by an in-scope gateway.
-    if (!credentials || isKeyScopeBlocked(credentials)) {
+    if (!credentials || isKeyScopeBlockedCredentials(credentials)) {
       const candidates = audioModelAliasCandidates(modelStr, provider, resolvedModel);
       const alternate = findAlternateAudioProvider(
         AUDIO_TRANSCRIPTION_PROVIDERS,
@@ -172,7 +167,7 @@ async function transcribeWithModel(
         if (
           alternateCredentials &&
           !isAllRateLimitedCredentials(alternateCredentials) &&
-          !isKeyScopeBlocked(alternateCredentials)
+          !isKeyScopeBlockedCredentials(alternateCredentials)
         ) {
           provider = alternate.provider;
           resolvedModel = alternate.model;
@@ -191,12 +186,21 @@ async function transcribeWithModel(
         )
       );
     }
-    if (isKeyScopeBlocked(credentials)) {
+    if (isKeyScopeBlockedCredentials(credentials)) {
       return keyScopeBlockedResponse(provider, credentials);
     }
     if (isAllRateLimitedCredentials(credentials)) {
       return rateLimitedProviderResponse(provider, credentials);
     }
+  } else if (providerConfig) {
+    // GHSA-3w2r: a keyless provider (local default or a keyless remote) is
+    // reachable by a connection-scoped key only when its allowlist admits
+    // keyless providers or an in-scope connection serves it (chat's #9057).
+    const keylessCredentialKey = providerConfig.credentialProviderId || provider;
+    const keylessRejection = await keylessProviderRejection(provider, allowedConnections, () =>
+      getProviderCredentialsWithQuotaPreflight(keylessCredentialKey, null, allowedConnections)
+    );
+    if (keylessRejection) return keylessRejection;
   }
 
   let response = await handleAudioTranscription({
@@ -204,6 +208,7 @@ async function transcribeWithModel(
     credentials,
     resolvedProvider: providerConfig,
     resolvedModel,
+    remoteMediaFetcher: fetchRemoteMedia,
   });
 
   const connectionId = (credentials as { connectionId?: string } | null)?.connectionId || undefined;
@@ -255,6 +260,46 @@ async function transcribeWithModel(
   return response;
 }
 
+/** Resolve native exact/wildcard aliases without changing unknown audio model ids. */
+async function resolveTranscriptionAlias(modelStr: string): Promise<string> {
+  // Reuse the same DB/settings exact and wildcard alias stores as chat. Stored
+  // combos above retain precedence, and unknown ids keep audio's own parser.
+  const aliases = await getCombinedModelAliases();
+  const wildcardAliases = Object.entries(aliases)
+    .filter(([pattern, target]) => /[*?]/.test(pattern) && typeof target === "string")
+    .map(([pattern, target]) => ({ pattern, target: target as string }));
+  const exact = resolveModelAliasFromMap(modelStr, aliases);
+  return exact ? `${exact.provider}/${exact.model}` : resolveModel(modelStr, {}, wildcardAliases);
+}
+
+async function transcribeWithAlias(
+  formData: FormData,
+  modelStr: string,
+  startTime: number,
+  apiKeyId: string | null,
+  apiKeyName: string | null,
+  apiKey: string | null,
+  allowedConnections: string[] | null
+) {
+  const resolvedModel = await resolveTranscriptionAlias(modelStr);
+  if (
+    resolvedModel !== modelStr &&
+    apiKey &&
+    !(await isModelAllowedForKey(apiKey, modelStr, resolvedModel))
+  ) {
+    return errorResponse(HTTP_STATUS.FORBIDDEN, "API key is not allowed to use the resolved model");
+  }
+
+  return transcribeWithModel(
+    resolvedModel === modelStr ? formData : withModel(formData, resolvedModel),
+    resolvedModel,
+    startTime,
+    apiKeyId,
+    apiKeyName,
+    allowedConnections
+  );
+}
+
 /**
  * POST /v1/audio/transcriptions — transcribe audio files
  * OpenAI Whisper API compatible (multipart/form-data)
@@ -284,14 +329,13 @@ export async function POST(request) {
   // request, matching the pattern every other proxied route follows (#13544).
   const apiKeyId = policy.apiKeyInfo?.id || null;
   const apiKeyName = policy.apiKeyInfo?.name || null;
-  // GHSA-3w2r: credential selection stays on the key's allowed connections —
-  // for the internal self-loop bearer, those of the caller key it names
+  // GHSA-3w2r: credential selection stays on the key's connection scope — for
+  // the internal self-loop bearer, that of the caller key it names
   // (x-omniroute-self-loop-key-id, resolved by enforceApiKeyPolicy). null = the
   // key is not connection-scoped.
-  const allowedConnections = intersectAllowedConnectionIds(
-    policy.apiKeyInfo?.allowedConnections ?? null,
-    null
-  );
+  const scope = await resolveKeyConnectionScope(policy.apiKeyInfo);
+  if (scope.rejection) return scope.rejection;
+  const { allowedConnections } = scope;
 
   // A bare name (no "/") may be a combo. /v1/models advertises combos, and chat and
   // embeddings both resolve them — resolving here too keeps the catalog honest and
@@ -321,7 +365,7 @@ export async function POST(request) {
               apiKeyName,
               allowedConnections
             ),
-          isModelAvailable: undefined,
+          isModelAvailable: createComboTargetKeyGate(policy, modelStr),
           log,
           settings,
           allCombos: allCombos as any,
@@ -334,12 +378,13 @@ export async function POST(request) {
     }
   }
 
-  return transcribeWithModel(
+  return transcribeWithAlias(
     formData,
     modelStr,
     startTime,
     apiKeyId,
     apiKeyName,
+    policy.apiKey,
     allowedConnections
   );
 }
