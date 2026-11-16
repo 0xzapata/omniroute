@@ -81,8 +81,11 @@ describe("StatsCharts — recharts imports live here", () => {
     assert.ok(statsChartsSrc.includes("BarChart"), "StatsCharts must import BarChart");
   });
 
-  it("imports LineChart from recharts", () => {
-    assert.ok(statsChartsSrc.includes("LineChart"), "StatsCharts must import LineChart");
+  it("draws the latency line with the kit LineChart, inside the same lazy chunk", () => {
+    assert.ok(
+      statsChartsSrc.includes('import { LineChart } from "@omniroute/ui-kit/reporting-charts"'),
+      "StatsCharts must import the kit LineChart"
+    );
   });
 
   it("exports a default component", () => {

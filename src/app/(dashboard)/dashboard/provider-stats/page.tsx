@@ -26,6 +26,7 @@ import {
 } from "@omniroute/ui-kit/table";
 import { Button, Card } from "@/shared/components";
 import Icon from "@/shared/components/Icon";
+import { Spinner } from "@/shared/components/Loading";
 
 interface ProviderStat {
   provider: string;
@@ -184,11 +185,7 @@ export default function ProviderStatsPage() {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center" role="status" aria-live="polite">
-          <Icon
-            name="progress_activity"
-            size={32}
-            className="mx-auto animate-spin text-text-muted"
-          />
+          <Spinner decorative size="lg" className="text-text-muted" />
           <p className="text-text-muted mt-4">{t("loading")}</p>
         </div>
       </div>
@@ -312,7 +309,7 @@ export default function ProviderStatsPage() {
           }
         />
 
-        <Table scrollbarLabel={t("providerBreakdown")}>
+        <Table scrollbarLabel={t("providerBreakdown")} containerClassName="rounded-none border-0">
           <TableHeader>
             <TableRow>
               <TableHead>{t("provider")}</TableHead>
@@ -455,7 +452,7 @@ export default function ProviderStatsPage() {
           icon="speed"
           className="p-5"
         >
-          <Table scrollbarLabel={t("comboMetrics")}>
+          <Table scrollbarLabel={t("comboMetrics")} containerClassName="rounded-none border-0">
             <TableHeader>
               <TableRow>
                 <TableHead>{t("combo")}</TableHead>
