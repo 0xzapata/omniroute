@@ -128,17 +128,19 @@ describe("Timeline page detail modal — deep link + reopen-on-close regression"
     commitPendingUrl();
 
     expect(window.location.search).toContain(`id=${LOG_ROW.id}`);
-    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
 
-    const dialog = container.querySelector('[role="dialog"]') as HTMLElement;
     await act(async () => {
-      dialog.click(); // backdrop click -> onClose
+      // A real click on the overlay: Radix waits for the click that follows the press.
+      const overlay = document.querySelector<HTMLElement>('[data-slot="sheet-overlay"]')!;
+      overlay.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+      overlay.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     await settle();
     commitPendingUrl();
 
     expect(window.location.search).not.toContain("id=");
-    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 
   it("deep link ?id= opens the modal on mount", async () => {
@@ -149,6 +151,6 @@ describe("Timeline page detail modal — deep link + reopen-on-close regression"
     });
     await settle();
 
-    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
   });
 });

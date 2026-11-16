@@ -1,3 +1,4 @@
+import type { HttpAttemptSelection } from "../../utils/providerHttpAttempts.ts";
 // Pure Pro-family fallback-chain decision helpers for the Antigravity executor (#7290):
 // decide what execute()'s per-candidate loop does after executeOnce() throws or
 // returns a 400, without depending on executor instance state (no `this`).
@@ -8,6 +9,7 @@ import { isAntigravityPreResponseTimeout } from "../../services/antigravityTimeo
 
 /** Shape of one execute()/executeOnce() result (kept local to avoid importing the class). */
 export type AntigravityExecuteResult = {
+  upstreamHttpSelection?: HttpAttemptSelection | null;
   response: Response;
   url: string;
   headers: Record<string, string>;

@@ -11,6 +11,7 @@ const core = await import("../../src/lib/db/core.ts");
 const providersDb = await import("../../src/lib/db/providers.ts");
 const modelsDb = await import("../../src/lib/db/models.ts");
 const auth = await import("../../src/sse/services/auth.ts");
+const settingsDb = await import("../../src/lib/db/settings.ts");
 
 const PROVIDER = "codex";
 
@@ -195,6 +196,29 @@ test("Codex image models are not blocked by an empty account inventory; chat mod
   );
 });
 
+test("Codex hosted-tool image ids are chat models and still honour the account inventory (#18687)", async () => {
+  // gpt-6.1-sol is registered as a Codex image model (hosted image_generation tool), but
+  // the request still runs the chat model on the account, and the Codex chat inventory
+  // lists it. An account that does not advertise it must stay ineligible for chat and
+  // image requests alike.
+  await resetStorage();
+  const { proId, plusId } = await seedTwoAccounts();
+  await modelsDb.replaceSyncedAvailableModelsForConnection(PROVIDER, proId, [
+    { id: "gpt-6.1-sol", name: "gpt-6.1-sol" },
+  ]);
+  assert.equal(
+    selectedConnectionId(await auth.getProviderCredentials(PROVIDER, null, null, "gpt-6.1-sol")),
+    proId
+  );
+  assert.equal(
+    selectedConnectionId(
+      await auth.getProviderCredentials(PROVIDER, null, [plusId], "gpt-6.1-sol")
+    ),
+    null,
+    "the plus account never advertised gpt-6.1-sol"
+  );
+});
+
 test("Codex forced and API-key restricted selection cannot bypass the account inventory", async () => {
   await resetStorage();
   const { plusId } = await seedTwoAccounts();
@@ -213,6 +237,8 @@ test("Codex forced and API-key restricted selection cannot bypass the account in
 
 test("the public catalog keeps the union of active Codex account inventories", async () => {
   await resetStorage();
+  // This inventory contract needs no unrelated live quota/AI Horde discovery.
+  await settingsDb.updateSettings({ hideAutoCombos: true, blockedProviders: ["aihorde"] });
   await seedTwoAccounts();
   const catalog = await import("../../src/app/api/v1/models/catalog.ts");
   catalog.__resetCatalogBuilderRunsForTest();

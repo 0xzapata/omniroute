@@ -169,9 +169,20 @@ describe("CompareTab", () => {
     // Now at 4/4
     expect(el.textContent).toContain("4/4 columns");
 
-    // Button should be disabled
+    // Button should be blocked: inactive, with the limit as its reason (GuardedAction,
+    // decision 4 — a natively disabled button never shows its title).
     const disabledAddBtn = el.querySelector("[aria-label='Add model column']") as HTMLButtonElement;
-    expect(disabledAddBtn.disabled).toBe(true);
+    expect(disabledAddBtn.getAttribute("aria-disabled")).toBe("true");
+    expect(disabledAddBtn.getAttribute("data-blocked")).toBe("true");
+    expect(
+      document.getElementById(disabledAddBtn.getAttribute("aria-describedby") ?? "")?.textContent
+    ).toBeTruthy();
+    // A fifth click adds nothing.
+    act(() => setInputValue(input, "model-extra"));
+    await act(async () => {
+      disabledAddBtn.click();
+    });
+    expect(el.textContent).toContain("4/4 columns");
   });
 
   it("removes a column when remove button is clicked", async () => {
